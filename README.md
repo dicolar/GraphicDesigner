@@ -33,3 +33,10 @@ autodock
 
 dragdrop
 ![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/drag-drop.png)
+
+but,there're still some known issues on it,and it's now at version 0.0.1-beta.
+you can watch this project, any suggestion is appreciated!
+
+known issue:
+>when 2 views get closer and they have at least 1 line linked,the line may disappear
+  this is caused by the a* algrithm,im now workin on it!
