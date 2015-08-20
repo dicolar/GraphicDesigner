@@ -331,6 +331,53 @@
 
 })(jQuery);
 
+//===============custom layout============================
+Ext.override(Ext.layout.container.Auto, {
+	calculateOverflow: function (ownerContext) {
+		var me = this,
+			width, height, scrollbarSize, scrollbars, xauto, yauto, targetEl;
+
+		xauto = (me.getOverflowXStyle(ownerContext) === 'auto');
+		yauto = (me.getOverflowYStyle(ownerContext) === 'auto');
+
+		if (xauto || yauto) {
+			scrollbarSize = Ext.getScrollbarSize();
+			if (this.owner.bodyCls == 'gd-view-template-list') {
+				scrollbarSize.width = 9;
+				scrollbarSize.height = 9;
+			}
+			targetEl = ownerContext.overflowContext.el.dom;
+			scrollbars = 0;
+
+			if (targetEl.scrollWidth > targetEl.clientWidth) {
+				scrollbars |= 1;
+			}
+
+			if (targetEl.scrollHeight > targetEl.clientHeight) {
+				scrollbars |= 2;
+			}
+
+			width = (yauto && (scrollbars & 2)) ? scrollbarSize.width : 0;
+			height = (xauto && (scrollbars & 1)) ? scrollbarSize.height : 0;
+
+			if (width !== me.lastOverflowAdjust.width || height !== me.lastOverflowAdjust.height) {
+				me.done = false;
+
+				ownerContext.invalidate({
+					state: {
+						overflowAdjust: {
+							width: width,
+							height: height
+						},
+						overflowState: scrollbars,
+						secondPass: true
+					}
+				});
+			}
+		}
+	}
+});
+
 //===========================GraphicDesigner definition=============================
 var GraphicDesigner = GraphicDesigner || {};
 
@@ -358,6 +405,9 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	constraintPadding : 5,
 	selModel : {
 		xtype : 'gdselmodel'
+	},
+	attributesInspectorPanel : {
+		xtype : 'attributesinspectorpanel'
 	},
 	//when restore view,and u need 2 inject some extra configs on it,implement this!
 	//args:config	--just add more configs into it
@@ -438,7 +488,18 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 		this.viewonly = viewonly;
 		this.setPaperSize(this.paperWidth, this.paperHeight);
 	},
+	afterLayout : function(layout) {
+		if (this.attributesInspectorPanel) {
+			this.attributesInspectorPanel.show();
+			this.attributesInspectorPanel.alignTo(this.el, 'tr-tr?', [1, 0]);
+		}
+
+		this.callParent(arguments);
+	},
 	afterRender : function() {
+		this.attributesInspectorPanel ? this.attributesInspectorPanel = Ext.widget(this.attributesInspectorPanel) : null;
+		this.attributesInspectorPanel ? this.attributesInspectorPanel.ownerCt = this : null;
+
 		window.cp = this;
 		if (this.constraintPadding < 0) this.constraintPadding = 0;
 		var me = this;
@@ -667,6 +728,7 @@ Ext.define('GraphicDesigner.View', {
 	labelDelegate : {xtype : 'gdlabeldelegate'},
 	keyDelegate : {xtype : 'gdkeydelegate'},
 	dockDelegate : {xtype : 'gddockdelegate'},
+	frameTipDelegate : {xtype : 'gdframetipdelegate'},
 	getCustomDescription : Ext.emptyFn,
 	restoreCustomDescription : Ext.emptyFn,
 	//private
@@ -702,18 +764,14 @@ Ext.define('GraphicDesigner.View', {
 	},
 	//implement this,but never use it!
 	//protected
-	redrawInRect : Ext.emptyFn,
+	redraw : Ext.emptyFn,
 	layoutInRect : function(rect) {
 		var ct = this.ownerCt;
 		if (ct.constraint) {
-			var woff = 0;
-			var hoff = 0;
 			if (rect.x < ct.constraintPadding) {
-				woff = rect.x - ct.constraintPadding;
 				rect.x = ct.constraintPadding;
 			}
 			if (rect.y < ct.constraintPadding) {
-				hoff = rect.y - ct.constraintPadding;
 				rect.y = ct.constraintPadding;
 			}
 			if (rect.x > ct.paperWidth - ct.constraintPadding - rect.width) {
@@ -725,7 +783,7 @@ Ext.define('GraphicDesigner.View', {
 		}
 
 		this.frame = rect;
-		this.redrawInRect(rect);
+		this.redraw();
 		this.fireEvent('layout', rect);
 	},
 	buildUI : function(paper) {
@@ -811,6 +869,10 @@ Ext.define('GraphicDesigner.View', {
 			this.dockDelegate = Ext.widget(this.dockDelegate);
 			this.dockDelegate.wireView(this);
 		}
+		if (this.frameTipDelegate) {
+			this.frameTipDelegate = Ext.widget(this.frameTipDelegate);
+			this.frameTipDelegate.wireView(this);
+		}
 		var od = [];
 		this.otherDelegates.filter(function(d) {
 			var d = Ext.widget(d);
@@ -843,6 +905,7 @@ Ext.define('GraphicDesigner.View', {
 			this.linkDelegate ? this.linkDelegate.disableListeners() : null;
 			this.keyDelegate ? this.keyDelegate.disableListeners() : null;
 			this.dockDelegates ? this.dockDelegates.disableListeners() : null;
+			this.frameTipDelegate ? this.dockDelegates.disableListeners() : null;
 			this.otherDelegates.filter(function(d) {d.disableListeners();});
 		} else {
 			this.labelDelegate ? this.labelDelegate.enableListeners() : null;
@@ -852,6 +915,7 @@ Ext.define('GraphicDesigner.View', {
 			this.linkDelegate ? this.linkDelegate.enableListeners() : null;
 			this.keyDelegate ? this.keyDelegate.enableListeners() : null;
 			this.dockDelegates ? this.dockDelegates.enableListeners() : null;
+			this.frameTipDelegate ? this.dockDelegates.enableListeners() : null;
 			this.otherDelegates.filter(function(d) {d.enableListeners();});
 		}
 	},
@@ -909,7 +973,8 @@ Ext.define('GraphicDesigner.Circle', {
 			radius : 35
 		}];
 	},
-	redrawInRect : function(rect) {
+	redraw : function() {
+		var rect = this.frame;
 		this.set[0].attr({
 			cx : rect.x + rect.width / 2,
 			cy : rect.y + rect.height / 2,
@@ -992,7 +1057,8 @@ Ext.define('GraphicDesigner.Pool', {
 			height : 400
 		};
 	},
-	redrawInRect : function(rect) {
+	redraw : function() {
+		var frame = this.frame;
 		this.set[0].attr({
 			x : rect.x,
 			y : rect.y,
@@ -1106,7 +1172,8 @@ Ext.define('GraphicDesigner.HPool', {
 			height : 200
 		};
 	},
-	redrawInRect : function(rect) {
+	redraw : function() {
+		var rect = this.frame;
 		this.set[0].attr({
 			x : rect.x,
 			y : rect.y,
@@ -1228,8 +1295,8 @@ Ext.define('GraphicDesigner.Rect', {
 			height : w
 		}]
 	},
-	redrawInRect : function(rect) {
-		this.set[0].attr(rect);
+	redraw : function() {
+		this.set[0].attr(this.frame);
 	},
 	buildUI : function(paper) {
 		this.shapes = [{
@@ -1311,7 +1378,91 @@ Ext.define('GraphicDesigner.ViewDelegate', {
 	}
 });
 
-//drag delegate
+Ext.define('GraphicDesigner.FrameTipDelegate', {
+	extend : 'GraphicDesigner.ViewDelegate',
+	xtype : 'gdframetipdelegate',
+	buildDelegate : function() {
+		this.tooltip = $('<div class="gd-delegate-tooltip">' +
+			'<div scope="xy"><span scope="x">X:&nbsp;<span scope="value"></span></span>' +
+			'&nbsp;&nbsp;<span scope="y">Y:&nbsp;<span scope="value"></span></span></div>' +
+
+			'<div scope="wh"><span scope="w">W:&nbsp;<span scope="value"></span></span>' +
+			'&nbsp;&nbsp;<span scope="h">H:&nbsp;<span scope="value"></span></span></div></div>').hide();
+		$(this.view.set.paper.canvas).after(this.tooltip);
+	},
+	layoutTooltip : function(showpoint, showsize) {
+		var rect = this.view.frame;
+
+		if (showpoint) {
+			this.tooltip.find('div[scope=xy]').show();
+			this.tooltip.find('span[scope=x]').find('span[scope=value]').text(rect.x);
+			this.tooltip.find('span[scope=y]').find('span[scope=value]').text(rect.y);
+		} else {
+			this.tooltip.find('div[scope=xy]').hide();
+		}
+
+		if (showsize) {
+			this.tooltip.find('div[scope=wh]').show();
+			this.tooltip.find('span[scope=w]').find('span[scope=value]').text(rect.width);
+			this.tooltip.find('span[scope=h]').find('span[scope=value]').text(rect.height);
+		} else {
+			this.tooltip.find('div[scope=wh]').hide();
+		}
+
+		var position = $(this.view.ownerCt.paper.canvas).position();
+		this.tooltip.css({
+			left : rect.x + position.left,
+			top : rect.y + position.top + rect.height + 10
+		});
+	},
+	getEventListeners : function() {
+		var me = this;
+		return {
+			keymovestart : function() {
+				me.layoutTooltip(true, false);
+				me.tooltip.show();
+			},
+			keymoveend : function() {
+				me.tooltip.fadeOut(100);
+			},
+			resize : function(rect, spec) {
+				if (['tl', 'l', 't', 'bl'].indexOf(spec) != -1) {
+					me.layoutTooltip(true, true);
+				} else {
+					me.layoutTooltip(false, true);
+				}
+
+				me.tooltip.stop().show();
+			},
+			resizedocked : function(spec) {
+				if (['tl', 'l', 't', 'bl'].indexOf(spec) != -1) {
+					me.layoutTooltip(true, true);
+				} else {
+					me.layoutTooltip(false, true);
+				}
+
+				me.tooltip.show();
+			},
+			resizeend : function() {
+				me.tooltip.fadeOut(100);
+			},
+			dragdocked : function() {
+				me.layoutTooltip(true, false);
+			},
+			dragmoving : function(dx, dy, x, y, e) {
+				me.layoutTooltip(true, false);
+				me.tooltip.show();
+			},
+			dragend : function(e) {
+				me.tooltip.fadeOut(100);
+			}
+		};
+	},
+	doDestroy : function() {
+		this.tooltip.remove();
+	}
+});
+
 Ext.define('GraphicDesigner.DragDelegate', {
 	extend : 'GraphicDesigner.ViewDelegate',
 	xtype : 'gddragdelegate',
@@ -1348,6 +1499,9 @@ Ext.define('GraphicDesigner.KeyDelegate', {
 	allowDelete : true,
 	getEventListeners : function() {
 		var me = this;
+		this.endTask = new Ext.util.DelayedTask(function(){
+			me.view.fireEvent('keymoveend');
+		});
 		return {
 			keydown : function() {
 				if (!this.selected || this.editing) return;
@@ -1385,7 +1539,10 @@ Ext.define('GraphicDesigner.KeyDelegate', {
 							break;
 					}
 
-					this.fireEvent('keymove');
+					me.endTask.cancel();
+					this.fireEvent('keymovestart');
+
+					me.endTask.delay(400);
 				}
 			}
 		};
@@ -2623,7 +2780,8 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 					break;
 			}
 
-			me.view.layoutInRect(rect, true);
+			me.view.layoutInRect(rect);
+			me.view.fireEvent('resize', rect, this.data('spec'), minX, minY, maxW, maxH);
 		}, function() {
 			this.obox = me.view.frame;
 			this.minW = me.view.minW ? me.view.minW : 10;
@@ -2633,6 +2791,7 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 			delete this.obox;
 			delete this.minW;
 			delete this.minH;
+			me.view.fireEvent('resizeend');
 
 			new Ext.util.DelayedTask(function() {
 				me.view.ownerCt.fireEvent('viewclicked', me.view);
@@ -2656,10 +2815,10 @@ Ext.define('GraphicDesigner.ToolboxDelegate', {
 		if (Ext.isEmpty(this.items)) return;
 
 		this.toolbox = $('<div class="gd-toolbox"></div>').hide();
-		this.tooltip = $('<div class="gd-toolbox-tootip"></div>').hide();
+		this.tooltip = $('<div class="gd-toolbox-tooltip"></div>').hide();
 		this.items.filter(function(item) {
 			var it = $('<div class="gd-toolbox-item ' + item.icon + '"></div>').hover(function() {
-				me.tooltip.removeClass().addClass('gd-toolbox-tootip ' + item.icon).text(' ' + item.title).show();
+				me.tooltip.removeClass().addClass('gd-toolbox-tooltip ' + item.icon).text(' ' + item.title).show();
 			}, function() {
 				me.tooltip.hide();
 			}).data('item', item);
@@ -2696,7 +2855,7 @@ Ext.define('GraphicDesigner.ToolboxDelegate', {
 	getEventListeners : function() {
 		var me = this;
 		return {
-			keymove : function() { me.toolbox.hide();},
+			keymovestart : function() { me.toolbox.hide();},
 			dragmoving : function() { me.toolbox.hide();},
 			dragend : function() {
 				me.layoutElements();
@@ -2851,6 +3010,212 @@ Ext.define('GraphicDesigner.DockDelegate', {
 		var cp = this.view.ownerCt;
 
 		return {
+			resize : function(frame, spec, minX, minY, maxW, maxH) {
+				cp.clearDockers();
+
+				var docked = false;
+				var thisview = this;
+				frame.x2 = frame.x + frame.width;
+				frame.y2 = frame.y + frame.height;
+
+				if (Math.abs(frame.x + frame.x + frame.width - cp.paperWidth) <= 10) {
+					cp.drawDocker({
+						spec : 'x',
+						value : cp.paperWidth / 2
+					}, 'black');
+
+					//dock center |
+					if (['tl', 'l', 'bl'].indexOf(spec) != -1) {
+						//static x2
+						//dock x!
+						frame.width = frame.x2 + frame.x2 - cp.paperWidth;
+						frame.x = frame.x2 - frame.width;
+					}
+					if (['tr', 'r', 'br'].indexOf(spec) != -1) {
+						//static x
+						//dock x!
+						frame.width = cp.paperWidth - frame.x - frame.x;
+					}
+					docked = true;
+				} else {
+					//detect x |-|
+					Ext.each(cp.detectViewsByRect({
+						x : frame.x - 6,
+						y : -9999999,
+						width : frame.width + 12,
+						height : 19999998
+					}, null, function(v) { return v != thisview && v.dockDelegate != null;}), function(v) {
+						//check bound docker first!
+						var found = false;
+						//check center dockers
+						var value = frame.x + frame.width / 2;
+						Ext.each(v.dockDelegate.xCenterDockers, function(docker) {
+							var targetValue = docker.getValue();
+							if (Math.abs(targetValue - value) <= 5) {
+								found = true;
+								cp.drawDocker({
+									spec : docker.spec,
+									value : targetValue
+								});
+
+								if (['tl', 'l', 'bl'].indexOf(spec) != -1) {
+									frame.width = frame.x2 + frame.x2 - targetValue - targetValue;
+									frame.x = frame.x2 - frame.width;
+								}
+								if (['tr', 'r', 'br'].indexOf(spec) != -1) {
+									frame.width = targetValue + targetValue - frame.x - frame.x;
+								}
+
+								return false;
+							}
+						});
+
+						if (found) {
+							docked = true;
+							return false;
+						}
+
+						Ext.each(v.dockDelegate.xBoundDockers, function(docker) {
+							if (['l', 'r'].indexOf(docker.dir) == -1) return;
+
+							var value = 0;
+							if (['tl', 'l', 'bl'].indexOf(spec) != -1) {
+								value = frame.x;
+							}
+							if (['tr', 'r', 'br'].indexOf(spec) != -1) {
+								value = frame.x2;
+							}
+							var targetValue = docker.getValue();
+							if (Math.abs(targetValue - value) <= 5) {
+								found = true;
+								cp.drawDocker({
+									spec : docker.spec,
+									value : targetValue
+								});
+
+								if (['tl', 'l', 'bl'].indexOf(spec) != -1) {
+									frame.x = targetValue;
+								}
+								if (['tr', 'r', 'br'].indexOf(spec) != -1) {
+									frame.x2 = targetValue;
+								}
+								frame.width = frame.x2 - frame.x;
+
+								return false;
+							}
+						});
+
+						if (found) {
+							docked = true;
+							return false;
+						}
+
+					});
+				}
+
+				//y dock
+				if (Math.abs(frame.y + frame.y + frame.height - cp.paperHeight) <= 10) {
+					cp.drawDocker({
+						spec : 'y',
+						value : cp.paperHeight / 2
+					}, 'black');
+
+					//dock center |
+					if (['tl', 't', 'tr'].indexOf(spec) != -1) {
+						//static x2
+						//dock x!
+						frame.height = frame.y2 + frame.y2 - cp.paperHeight;
+						frame.y = frame.y2 - frame.height;
+					}
+					if (['bl', 'b', 'br'].indexOf(spec) != -1) {
+						//static x
+						//dock x!
+						frame.height = cp.paperHeight - frame.y - frame.y;
+					}
+					docked = true;
+				} else {
+					//detect x |-|
+					Ext.each(cp.detectViewsByRect({
+						x : -9999999,
+						y : frame.y - 6,
+						width : 19999998,
+						height : frame.height + 12
+					}, null, function(v) { return v != thisview && v.dockDelegate != null;}), function(v) {
+						//check bound docker first!
+						var found = false;
+						//check center dockers
+						var value = frame.y + frame.height / 2;
+						Ext.each(v.dockDelegate.yCenterDockers, function(docker) {
+							var targetValue = docker.getValue();
+							if (Math.abs(targetValue - value) <= 5) {
+								found = true;
+								cp.drawDocker({
+									spec : docker.spec,
+									value : targetValue
+								});
+
+								if (['tl', 't', 'tr'].indexOf(spec) != -1) {
+									frame.height = frame.y2 + frame.y2 - targetValue - targetValue;
+									frame.y = frame.y2 - frame.height;
+								}
+								if (['bl', 'b', 'br'].indexOf(spec) != -1) {
+									frame.height = targetValue + targetValue - frame.y - frame.y;
+								}
+
+								return false;
+							}
+						});
+
+						if (found) {
+							docked = true;
+							return false;
+						}
+
+						Ext.each(v.dockDelegate.yBoundDockers, function(docker) {
+							if (['t', 'b'].indexOf(docker.dir) == -1) return;
+
+							var value = 0;
+							if (['tl', 't', 'tr'].indexOf(spec) != -1) {
+								value = frame.y;
+							}
+							if (['bl', 'b', 'br'].indexOf(spec) != -1) {
+								value = frame.y2;
+							}
+							var targetValue = docker.getValue();
+							if (Math.abs(targetValue - value) <= 5) {
+								found = true;
+								cp.drawDocker({
+									spec : docker.spec,
+									value : targetValue
+								});
+
+								if (['tl', 't', 'tr'].indexOf(spec) != -1) {
+									frame.y = targetValue;
+								}
+								if (['bl', 'b', 'br'].indexOf(spec) != -1) {
+									frame.y2 = targetValue;
+								}
+								frame.height = frame.y2 - frame.y;
+
+								return false;
+							}
+						});
+
+						if (found) {
+							docked = true;
+							return false;
+						}
+
+					});
+				}
+
+				if (docked) {
+					me.view.layoutInRect(frame);
+					me.view.fireEvent('resizedocked', spec);
+				}
+
+
+			},
 			dragmoving : function() {
 				cp.clearDockers();
 
@@ -2914,7 +3279,10 @@ Ext.define('GraphicDesigner.DockDelegate', {
 							});
 						}
 
-						if (found) docked = true;
+						if (found) {
+							docked = true;
+							return false;
+						}
 
 					});
 				}
@@ -2973,13 +3341,20 @@ Ext.define('GraphicDesigner.DockDelegate', {
 							});
 						}
 
-						if (found) docked = true;
+						if (found) {
+							docked = true;
+							return false;
+						}
 					});
 				}
 
 				if (docked) {
 					me.view.layoutInRect(frame);
+					me.view.fireEvent('dragdocked');
 				}
+			},
+			resizeend : function() {
+				cp.clearDockers();
 			},
 			dragend : function() {
 				cp.clearDockers();
@@ -3307,9 +3682,9 @@ Ext.define('GraphicDesigner.ViewsetPanel', {
 		var me = this;
 		$(header.el.dom).addClass('gd-viewset-header').click(function() {
 			if (me.collapsed) {
-				me.expand();
+				me.expand(null, false);
 			} else {
-				me.collapse();
+				me.collapse(null, false);
 			}
 		});
 		if (this.collapsed) {
@@ -3345,6 +3720,7 @@ Ext.define('GraphicDesigner.Viewtemplatelist', {
 	extend : 'Ext.panel.Panel',
 	xtype : 'gdviewtemplatelist',
 	layout : 'column',
+	bodyCls : 'gd-view-template-list',
 	getCanvasPanel : Ext.emptyFn,
 	autoScroll : true,
 	viewsets : [],
@@ -3403,3 +3779,148 @@ Ext.define('GraphicDesigner.Viewtemplatelist', {
 		this.callParent();
 	}
 });
+
+//==================attributes inspector================================
+Ext.define('GraphicDesigner.AttributesInspectorPanel', {
+	extend : 'Ext.toolbar.Toolbar',
+	xtype : 'attributesinspectorpanel',
+	cls : 'gd-attr-inspector',
+	shadow : false,
+	defaults : {
+		width : 30,
+		height : 30
+	},
+	inspectors : [{
+		xtype : 'gdcanvasinfoinspector'
+	}, {
+		xtype : 'gdviewattrinspector'
+	}],
+	initComponent : function() {
+		this.vertical = true;
+		this.floating = true;
+		this.fixed = true;
+
+		var toggleGroup = Ext.id() + '-inspector-toggle-group';
+		Ext.each(this.inspectors, function(c) {c.toggleGroup = toggleGroup;c.allowDepress = false;});
+		this.items =  this.inspectors;
+
+		this.callParent();
+	},
+	afterRender : function() {
+		$(this.el.dom).prepend('<div class="gd-attr-inspector-header"></div>');
+		//toggle first!
+
+		this.callParent();
+
+		if (this.getComponent(0)) {
+			this.getComponent(0).toggle(true);
+		}
+	}
+});
+//------------inspectors---------------
+Ext.define('GraphicDesigner.Inspector', {
+	xtype : 'gdabstractinspector',
+	extend : 'Ext.button.Button',
+	iconCls : 'gd-inspector-item-icon',
+	title : '',
+	panelSize : {
+		width : 250,
+		height : 300
+	},
+	panelConfig : {},
+	//private
+	layoutInfoPanel : function(callback) {
+		var me = this;
+		new Ext.util.DelayedTask(function() {
+			me.infoPanel.show();
+			me.infoPanel.alignTo(me.ownerCt.el, 'tr-tl', [1, 11]);
+			me.infoPanel.hide();
+			callback ? callback(me.infoPanel) : null;
+		}).delay(30);
+	},
+	initComponent : function() {
+		var me = this;
+		this.infoPanel = Ext.widget({
+			xtype : 'toolbar',
+			vertical : true,
+			shadow : false,
+			cls : 'gd-attr-inspector-floating-panel',
+			style : 'padding:0px!important;',
+			items : [Ext.apply({
+				xtype : 'panel',
+				title : this.title,
+				width : this.panelSize.width,
+				height : this.panelSize.height,
+				headerCls : 'gd-inspector-panel-header',
+				listeners : {
+					afterRender : function() {
+						if (this.headerCls) {
+							Ext.fly(this.el.query('.x-panel-header-default')[0]).addCls(this.headerCls);
+							Ext.fly(this.el.query('.x-header-text')[0]).addCls(this.headerCls + '-text');
+
+							$(this.header.el.dom).append('<div class="gdicon-fast_forward gd-inspector-panel-collapse"></div>')
+								.find('.gd-inspector-panel-collapse').click(function() {
+									me.toggle(false);
+								});
+						}
+					}
+				}
+			}, this.panelConfig)],
+			width : this.panelSize.width,
+			height : this.panelSize.height,
+			floating : true
+		});
+		this.infoPanel.hide();
+
+		this.on('toggle', function(b, p) {
+			this.layoutInfoPanel(function(ip) {
+				ip[p ? 'show' : 'hide']();
+			});
+		});
+
+		this.callParent();
+	},
+	afterRender : function() {
+		this.callParent();
+
+		var me = this;
+		me.layoutInfoPanel();
+	},
+	destroy : function() {
+		this.infoPanel.destroy();
+		this.callParent();
+	}
+});
+
+Ext.define('GraphicDesigner.CanvasInfoInspector', {
+	extend : 'GraphicDesigner.Inspector',
+	xtype : 'gdcanvasinfoinspector',
+	iconCls : 'gd-inspector-item-icon gdicon-file-empty',
+	title : 'preview',
+	initComponent : function() {
+		this.panelSize = {
+			width : 250,
+			height : 300
+		}
+		this.panelConfig = {};
+
+		this.callParent();
+	}
+});
+
+Ext.define('GraphicDesigner.ViewAttrInspector', {
+	extend : 'GraphicDesigner.Inspector',
+	xtype : 'gdviewattrinspector',
+	iconCls : 'gd-inspector-item-icon gdicon-info_outline',
+	title : 'attributes',
+	initComponent : function() {
+		this.panelSize = {
+			width : 200,
+			height : 200
+		}
+		this.panelConfig = {};
+
+		this.callParent();
+	}
+});
+
