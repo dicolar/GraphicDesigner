@@ -378,8 +378,19 @@ Ext.override(Ext.layout.container.Auto, {
 	}
 });
 
+Array.prototype.move = function (from, to) {
+	this.splice(to, 0, this.splice(from, 1)[0]);
+};
+
 //===========================GraphicDesigner definition=============================
 var GraphicDesigner = GraphicDesigner || {};
+
+GraphicDesigner.suspendClick = function() {
+	GraphicDesigner.suspendClickEvent = true;
+	new Ext.util.DelayedTask(function(){
+		delete GraphicDesigner.suspendClickEvent;
+	}).delay(30);
+}
 
 GraphicDesigner.transformShapeIntoFrame = function(ele, frame) {
 	ele.transform('');
@@ -389,6 +400,22 @@ GraphicDesigner.transformShapeIntoFrame = function(ele, frame) {
 
 	var scale = Math.min(frame.width / w, frame.height / h);
 	return ele.transform('T' + (frame.x - box.x) + ',' + (frame.y - box.y) + 'S' + scale + ',' + scale + ',' + frame.x + ',' + frame.y);
+}
+
+GraphicDesigner.getCenter = function(frame) {
+	return {
+		x : frame.x + frame.width / 2,
+		y : frame.y + frame.height / 2
+	};
+}
+
+GraphicDesigner.translateHexColorFromRgb = function(rgb) {
+	var hexDigits = new Array("0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f");
+	function hex(x) {
+		return isNaN(x) ? "00" : hexDigits[(x - x % 16) / 16] + hexDigits[x % 16];
+	}
+	rgb = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+	return "#" + hex(rgb[1]) + hex(rgb[2]) + hex(rgb[3]);
 }
 
 //depends on extjs&jquery&raphael
@@ -403,11 +430,12 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	paperHeight : 1280,
 	constraint : false,
 	constraintPadding : 5,
+	bgColor : 'white',
 	selModel : {
 		xtype : 'gdselmodel'
 	},
 	attributesInspectorPanel : {
-		xtype : 'attributesinspectorpanel'
+		xtype : 'gdattributesinspectorpanel'
 	},
 	//when restore view,and u need 2 inject some extra configs on it,implement this!
 	//args:config	--just add more configs into it
@@ -432,6 +460,43 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	},
 	getCanvas : function() {
 		return this.paper.canvas;
+	},
+	getDataUrl : function() {
+		//var canvas = $('<canvas></canvas>');
+		//var img = $('<image />');
+		//
+		//window.img = img;
+		//img.src = 'data:image/svg+xml,' + encodeURIComponent((new XMLSerializer).serializeToString(this.getCanvas()));
+		////TODO
+		//window.open(img.src);
+		return 'data:image/svg+xml,' + encodeURIComponent((new XMLSerializer).serializeToString(this.getCanvas()));
+	},
+	fullscreen : function(element) {
+		if(!element) {
+			element = document.documentElement;
+		}
+		if(!document.fullscreenElement && // alternative standard method
+			!document.mozFullScreenElement && !document.webkitFullscreenElement && !document.msFullscreenElement) {// current working methods
+			if(element.requestFullscreen) {
+				element.requestFullscreen();
+			} else if(document.documentElement.msRequestFullscreen) {
+				element.msRequestFullscreen();
+			} else if(document.documentElement.mozRequestFullScreen) {
+				element.mozRequestFullScreen();
+			} else if(document.documentElement.webkitRequestFullscreen) {
+				element.webkitRequestFullscreen(Element.ALLOW_KEYBOARD_INPUT);
+			}
+		} else {
+			if(document.exitFullscreen) {
+				document.exitFullscreen();
+			} else if(document.msExitFullscreen) {
+				document.msExitFullscreen();
+			} else if(document.mozCancelFullScreen) {
+				document.mozCancelFullScreen();
+			} else if(document.webkitExitFullscreen) {
+				document.webkitExitFullscreen();
+			}
+		}
 	},
 	setPaperSize : function(width, height) {
 		this.paperWidth = width;
@@ -485,20 +550,24 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 		delete this.__dockLines;
 	},
 	asViewMode : function(viewonly) {
+		if (this.attributesInspectorPanel) {
+			this.attributesInspectorPanel[viewonly ? 'hide' : 'show']();
+		}
 		this.viewonly = viewonly;
 		this.setPaperSize(this.paperWidth, this.paperHeight);
 	},
 	afterLayout : function(layout) {
 		if (this.attributesInspectorPanel) {
 			this.attributesInspectorPanel.show();
-			this.attributesInspectorPanel.alignTo(this.el, 'tr-tr?', [1, 0]);
+			this.attributesInspectorPanel.alignTo(this.body, 'tr-tr?');
+			this.attributesInspectorPanel.layoutInspector();
 		}
 
 		this.callParent(arguments);
 	},
 	afterRender : function() {
 		this.attributesInspectorPanel ? this.attributesInspectorPanel = Ext.widget(this.attributesInspectorPanel) : null;
-		this.attributesInspectorPanel ? this.attributesInspectorPanel.ownerCt = this : null;
+		this.attributesInspectorPanel ? this.attributesInspectorPanel.owner = this : null;
 
 		window.cp = this;
 		if (this.constraintPadding < 0) this.constraintPadding = 0;
@@ -509,7 +578,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 
 		this.canvasContainer = $('<div class="gd-canvas-container"></div>');
 		this.container.append(this.canvasContainer);
-		this.bgLayer = $('<div class="gd-bg-layer"></div>');
+		this.bgLayer = $('<div class="gd-bg-layer"></div>').css('background-color', this.bgColor);
 		this.canvasContainer.append(this.bgLayer);
 
 		this.gridLayer = $('<svg class="gd-grid-layer" xmlns="http://www.w3.org/2000/svg">' +
@@ -632,9 +701,41 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 		return this.views.slice();
 	},
 	//each desc must have key of:typeName
-	restoreViewsByDescriptions : function(descs) {
+	getCanvasDescription : function() {
+		return {
+			canvas : {
+				paperWidth : this.paperWidth,
+				paperHeight : this.paperHeight,
+				bgColor : GraphicDesigner.translateHexColorFromRgb(this.bgLayer.css('background-color'))
+			},
+			views : this.views.map(function(view) {
+				return view.getGraphicDescription();
+			})
+		};
+	},
+	restoreCanvasByDescription : function(desc) {
+		if (!desc) return;
+		if (Ext.isObject(desc.canvas)) {
+			if (this.rendered) {
+				this.bgLayer.css('background-color', desc.canvas.bgColor);
+				this.setPaperSize(desc.canvas.paperWidth, desc.canvas.paperHeight);
+			} else {
+				this.bgColor = desc.canvas.bgColor;
+				this.paperWidth = desc.canvas.paperWidth;
+				this.paperHeight = desc.canvas.paperHeight;
+			}
+		}
+		if (Ext.isArray(desc.views)) {
+			this.restoreViewsByDescriptions(desc.views);
+		}
+
+	},
+	restoreViewsByDescriptions : function(views) {
+		if (!Ext.isArray(views)) return;
+		//order by zindex
+		views.sort(function(o1, o2) {return o1.zIndex > o2.zIndex});
 		var me = this;
-		descs.filter(function(desc) {
+		views.filter(function(desc) {
 			if (!desc.hasOwnProperty('typeName')) return;
 
 			me.preProcessRestoreData(desc);
@@ -658,6 +759,11 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	addSubView : function(view) {
 		view = Ext.widget(view);
 		if (!view) return null;
+
+		if (view.zIndex == null) {
+			//add zIndex 2 it!
+			view.zIndex = this.views.length;
+		}
 		if (this.views.indexOf(view) == -1) this.views.push(view);
 		if (this.rendered) {
 			view.ownerCt = this;
@@ -674,6 +780,9 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 
 		if (res.length > 0) return res[0];
 		return null;
+	},
+	getViewAt : function(idx) {
+		return this.views[idx];
 	},
 	findViewsBy : function(fn) {
 		return this.views.slice().filter(fn);
@@ -702,8 +811,22 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 		this.views.filter(function(view) {view.destroy();});
 		this.views = [];
 	},
+	//private
+	orderViewsZIndex : function() {
+		Ext.each(this.views, function(v, i) {
+			v.zIndex = i;
+			v.set.toFront();
+			v.labelDelegate ? v.labelDelegate.textElement.toFront() : null;
+
+			v.fireEvent('zindexed');
+		});
+	},
 	destroy : function() {
+		this.attributesInspectorPanel ? this.attributesInspectorPanel.destroy() : null;
+		this.removeAllViews();
 		this.selModel ? this.selModel.destroy() : null;
+
+		this.callParent(arguments);
 	}
 });
 
@@ -718,6 +841,8 @@ Ext.define('GraphicDesigner.View', {
 	draggable : true,
 	shapes : [],
 	//after instanced, readonly!
+	minW : 20,
+	minH : 20,
 	frame : null,
 	text : '',
 	otherDelegates : [],
@@ -729,10 +854,10 @@ Ext.define('GraphicDesigner.View', {
 	keyDelegate : {xtype : 'gdkeydelegate'},
 	dockDelegate : {xtype : 'gddockdelegate'},
 	frameTipDelegate : {xtype : 'gdframetipdelegate'},
+	inspectorDelegate : {xtype : 'gdinspectordelegate'},
 	getCustomDescription : Ext.emptyFn,
 	restoreCustomDescription : Ext.emptyFn,
 	//private
-	set : null,
 	addDelegate : function(dl) {
 		dl = Ext.widget(dl);
 		dl.wireView(this);
@@ -782,6 +907,9 @@ Ext.define('GraphicDesigner.View', {
 			}
 		}
 
+		rect.width = Math.max(rect.width, this.minW);
+		rect.height = Math.max(rect.height, this.minH);
+
 		this.frame = rect;
 		this.redraw();
 		this.fireEvent('layout', rect);
@@ -792,18 +920,71 @@ Ext.define('GraphicDesigner.View', {
 
 		this.afterRender();
 	},
+	pre : function() {
+		var ct = this.ownerCt;
+		return ct.views[ct.views.indexOf(this) - 1];
+	},
+	next : function() {
+		var ct = this.ownerCt;
+		return ct.views[ct.views.indexOf(this) + 1];
+	},
+	flipToFront : function() {
+		var ct = this.ownerCt;
+		var idx = ct.views.indexOf(this);
+		if (idx == -1 || idx == ct.views.length - 1) return;
+
+		ct.views.move(idx, idx + 1);
+		ct.orderViewsZIndex();
+	},
+	flipToBack : function() {
+		var ct = this.ownerCt;
+		var idx = ct.views.indexOf(this);
+		if (idx == -1 || idx == 0) return;
+
+		ct.views.move(idx, idx - 1);
+		ct.orderViewsZIndex();
+
+		this.fireEvent('zindexed');
+	},
+	flipToTop : function() {
+		var ct = this.ownerCt;
+		var idx = ct.views.indexOf(this);
+		if (idx == -1 || idx == ct.views.length - 1) return;
+
+		ct.views.move(idx, ct.views.length - 1);
+		ct.orderViewsZIndex();
+
+		this.fireEvent('zindexed');
+	},
+	flipToBottom : function() {
+		var ct = this.ownerCt;
+		var idx = ct.views.indexOf(this);
+		if (idx == -1 || idx == 0) return;
+
+		ct.views.move(idx, 0);
+		ct.orderViewsZIndex();
+
+		this.fireEvent('zindexed');
+	},
+	//add custom delegates to this view in the function
 	afterViewBuilt : Ext.emptyFn,
 	//do not override this!
 	getGraphicDescription : function() {
 		var o = Ext.apply({
-			viewId : this.viewId,
 			typeName : Ext.getClassName(this),
+			viewId : this.viewId,
 			frame : this.frame,
+			minW : this.minW,
+			minH : this.minH,
 			text : this.labelDelegate ? this.labelDelegate.text : '',
-			linkers : this.linkDelegate ? this.linkDelegate.getLinkersData() : null
+			linkers : this.linkDelegate ? this.linkDelegate.getLinkersData() : null,
+			zIndex : this.zIndex
 		}, this.getCustomDescription());
 
 		return Ext.applyIf(o, this.getMoreGraphicDescription());
+	},
+	findDelegateBy : function(fn) {
+		return this.otherDelegates.filter(fn);
 	},
 	afterRender : function() {
 		this.rendered = true;
@@ -814,7 +995,8 @@ Ext.define('GraphicDesigner.View', {
 		//translate click&dblclick event!
 		var clicked = false;
 		var dblclicked = false;
-		this.on('dragstart', function() {
+		this.on('dragstart', function(x, y, e) {
+			e.stopPropagation();
 			if (clicked) {
 				clicked = false;
 				dblclicked = true;
@@ -835,9 +1017,17 @@ Ext.define('GraphicDesigner.View', {
 		}, function(x, y ,e) {
 			me.fireEvent('dragstart', x, y, e);
 			me.ownerCt.fireEvent('viewclicked', me);
-			me.labelDelegate ? me.labelDelegate.toFront() : null;
 		}, function(e) {
 			me.fireEvent('dragend', e);
+		});
+		this.set.click(function(e) {
+			e.stopPropagation();
+		});
+
+		this.set.hover(function() {
+			me.fireEvent('hover');
+		}, function() {
+			me.fireEvent('unhover');
 		});
 		//===========end translating===============
 
@@ -873,9 +1063,14 @@ Ext.define('GraphicDesigner.View', {
 			this.frameTipDelegate = Ext.widget(this.frameTipDelegate);
 			this.frameTipDelegate.wireView(this);
 		}
+		if (this.inspectorDelegate) {
+			this.inspectorDelegate = Ext.widget(this.inspectorDelegate);
+			this.inspectorDelegate.wireView(this);
+		}
 		var od = [];
-		this.otherDelegates.filter(function(d) {
+		Ext.each(this.otherDelegates, function(d) {
 			var d = Ext.widget(d);
+			if (!Ext.isObject(d)) return;
 			od.push(d);
 			d.wireView(me);
 		});
@@ -894,6 +1089,7 @@ Ext.define('GraphicDesigner.View', {
 
 		this.restoreCustomDescription();
 	},
+	//public
 	setDisabled : function(disabled) {
 		this.disabled = disabled;
 
@@ -906,6 +1102,7 @@ Ext.define('GraphicDesigner.View', {
 			this.keyDelegate ? this.keyDelegate.disableListeners() : null;
 			this.dockDelegates ? this.dockDelegates.disableListeners() : null;
 			this.frameTipDelegate ? this.dockDelegates.disableListeners() : null;
+			this.inspectorDelegate ? this.inspectorDelegate.disableListeners() : null;
 			this.otherDelegates.filter(function(d) {d.disableListeners();});
 		} else {
 			this.labelDelegate ? this.labelDelegate.enableListeners() : null;
@@ -916,10 +1113,15 @@ Ext.define('GraphicDesigner.View', {
 			this.keyDelegate ? this.keyDelegate.enableListeners() : null;
 			this.dockDelegates ? this.dockDelegates.enableListeners() : null;
 			this.frameTipDelegate ? this.dockDelegates.enableListeners() : null;
+			this.inspectorDelegate ? this.inspectorDelegate.enableListeners() : null;
 			this.otherDelegates.filter(function(d) {d.enableListeners();});
 		}
 	},
+	//private
 	destroy : function() {
+		if (this.selected) {
+			this.fireEvent('deselected');
+		}
 		this.labelDelegate ? this.labelDelegate.destroy() : null;
 		this.rotateDelegate ? this.rotateDelegate.destroy() : null;
 		this.dragDelegate ? this.dragDelegate.destroy() : null;
@@ -927,7 +1129,8 @@ Ext.define('GraphicDesigner.View', {
 		this.linkDelegate ? this.linkDelegate.destroy() : null;
 		this.keyDelegate ? this.keyDelegate.destroy() : null;
 		this.dockDelegates ? this.dockDelegates.destroy() : null;
-		this.otherDelegates.filter(function(d) {d.destroy();});
+		this.inspectorDelegate ? this.inspectorDelegate.destroy() : null;
+		Ext.each(this.otherDelegates, function(d) {d.destroy();});
 
 		this.set.remove();
 
@@ -942,14 +1145,10 @@ Ext.define('GraphicDesigner.Circle', {
 	xtype : 'gdcircle',
 	fill : 'white',
 	'fill-opacity' : 1,
-	minW : 20,
-	minH : 20,
 	getMoreGraphicDescription : function() {
 		return {
 			fill : this.fill,
-			'fill-opacity' : this['fill-opacity'],
-			minW : this.minW,
-			minH : this.minH
+			'fill-opacity' : this['fill-opacity']
 		};
 	},
 	getDefaultFrame : function() {
@@ -961,16 +1160,13 @@ Ext.define('GraphicDesigner.Circle', {
 		};
 	},
 	getPreview : function(frame) {
-		var r = Math.min(frame.width, frame.height) / 2 - 3;
-
+		var center = GraphicDesigner.getCenter(frame);
 		return [{
 			type : 'circle',
 			fill : 'white',
-			'stroke-width' : 1,
-			stroke : 'black',
-			x : frame.x + frame.width / 2,
-			y : frame.y + frame.height / 2,
-			radius : 35
+			cx : center.x - 2,
+			cy : center.y - 2,
+			r : Math.min(frame.width, frame.height) / 2
 		}];
 	},
 	redraw : function() {
@@ -994,19 +1190,17 @@ Ext.define('GraphicDesigner.Circle', {
 		this.callParent(arguments);
 	},
 	afterViewBuilt : function() {
-		this.labelDelegate = Ext.apply(Ext.clone(this.labelDelegate), {
+		this.labelDelegate = Ext.applyIf(Ext.clone(this.labelDelegate), {
 			xtype : 'gdlabeldelegate',
 			text : this.text,
 			getTextRect : function() {
 				return this.view.frame;
 			}
 		});
-		this.resizeDelegate = Ext.apply(Ext.clone(this.resizeDelegate), {
+		this.resizeDelegate = Ext.applyIf(Ext.clone(this.resizeDelegate), {
 			xtype : 'gdresizedelegate',
 			showOutline : true,
-			resizers : ['tl', 'tr', 'bl', 'br'],
-			minW : this.minW,
-			minH : this.minH
+			resizers : ['tl', 'tr', 'bl', 'br']
 		});
 	}
 });
@@ -1016,37 +1210,31 @@ Ext.define('GraphicDesigner.Pool', {
 	xtype : 'gdpool',
 	fill : 'white',
 	'fill-opacity' : 1,
-	minW : 20,
 	minH : 90,
 	getPreview : function(frame) {
-		var w = frame.width;
-		var h = frame.height;
+		var w = Math.min(frame.height, frame.width);
+		var h = frame.height - 4;
+
 		if (w >= h) {
-			w = h - 32
+			w = h * .6;
 		}
-		var fromx = frame.x + (frame.width - w) / 2 + 1;
+		var fromx = frame.x + (frame.width - w) / 2
 
 		return [{
-			stroke : 'black',
-			'stroke-width' : 1,
 			type : 'rect',
 			x : fromx,
-			y : frame.y + 1,
+			y : frame.y,
 			width : w,
-			height : h - 2
+			height : h
 		}, {
 			type : 'path',
-			stroke : 'black',
-			'stroke-width' : 1,
 			path : 'M' + fromx + ',' + (frame.y + 20) + 'H' + (fromx + w)
 		}];
 	},
 	getMoreGraphicDescription : function() {
 		return {
 			fill : this.fill,
-			'fill-opacity' : this['fill-opacity'],
-			minW : this.minW,
-			minH : this.minH
+			'fill-opacity' : this['fill-opacity']
 		};
 	},
 	getDefaultFrame : function() {
@@ -1058,7 +1246,7 @@ Ext.define('GraphicDesigner.Pool', {
 		};
 	},
 	redraw : function() {
-		var frame = this.frame;
+		var rect = this.frame;
 		this.set[0].attr({
 			x : rect.x,
 			y : rect.y,
@@ -1089,7 +1277,7 @@ Ext.define('GraphicDesigner.Pool', {
 	},
 	afterViewBuilt : function() {
 
-		this.labelDelegate = Ext.apply(Ext.clone(this.labelDelegate), {
+		this.labelDelegate = Ext.applyIf(Ext.clone(this.labelDelegate), {
 			xtype : 'gdlabeldelegate',
 			text : this.text,
 			getTextRect : function() {
@@ -1104,14 +1292,12 @@ Ext.define('GraphicDesigner.Pool', {
 		});
 		this.linkDelegate = null;
 		this.rotateDelegate = null;
-		this.resizeDelegate = Ext.apply(Ext.clone(this.resizeDelegate), {
+		this.resizeDelegate = Ext.applyIf(Ext.clone(this.resizeDelegate), {
 			xtype : 'gdresizedelegate',
-			showOutline : false,
-			minW : this.minW,
-			minH : this.minH
+			showOutline : false
 		});
 		var me = this;
-		this.dockDelegate = Ext.apply(Ext.clone(this.dockDelegate), {
+		this.dockDelegate = Ext.applyIf(Ext.clone(this.dockDelegate), {
 			xtype : 'gddockdelegate',
 			getOtherDockers : function() {
 				return [{
@@ -1140,28 +1326,25 @@ Ext.define('GraphicDesigner.HPool', {
 	extend : 'GraphicDesigner.Pool',
 	xtype : 'gdhpool',
 	minW : 90,
-	minH : 20,
 	getPreview : function(frame) {
-		var w = frame.width;
+		var w = Math.min(frame.height, frame.width) - 4;
 		var h = frame.height;
+
 		if (h >= w) {
-			h = w - 32
+			h = w * .6;
 		}
-		var fromy = frame.y + (frame.height - h) / 2 + 1;
+		var fromx = frame.x + (frame.width - w) / 2;
+		var fromy = frame.y + (frame.height - h) / 2;
 
 		return [{
-			stroke : 'black',
-			'stroke-width' : 1,
 			type : 'rect',
-			x : frame.x + 1,
+			x : fromx,
 			y : fromy,
-			width : w - 2,
+			width : w,
 			height : h
 		}, {
 			type : 'path',
-			stroke : 'black',
-			'stroke-width' : 1,
-			path : 'M' + (frame.x + 20) + ',' + fromy + 'V' + (fromy + h)
+			path : 'M' + (fromx + 20) + ',' + fromy + 'V' + (fromy + h)
 		}];
 	},
 	getDefaultFrame : function() {
@@ -1204,7 +1387,7 @@ Ext.define('GraphicDesigner.HPool', {
 	},
 	afterViewBuilt : function() {
 
-		this.labelDelegate = Ext.apply(Ext.clone(this.labelDelegate), {
+		this.labelDelegate = Ext.applyIf(Ext.clone(this.labelDelegate), {
 			xtype : 'gdlabeldelegate',
 			text : this.text,
 			getTransform : function() {
@@ -1227,14 +1410,12 @@ Ext.define('GraphicDesigner.HPool', {
 		});
 		this.rotateDelegate = null;
 		this.linkDelegate = null;
-		this.resizeDelegate = Ext.apply(Ext.clone(this.resizeDelegate), {
+		this.resizeDelegate = Ext.applyIf(Ext.clone(this.resizeDelegate), {
 			xtype : 'gdresizedelegate',
-			showOutline : false,
-			minW : this.minW,
-			minH : this.minH
+			showOutline : false
 		});
 		var me = this;
-		this.dockDelegate = Ext.apply(Ext.clone(this.dockDelegate), {
+		this.dockDelegate = Ext.applyIf(Ext.clone(this.dockDelegate), {
 			xtype : 'gddockdelegate',
 			getOtherDockers : function() {
 				return [{
@@ -1264,14 +1445,11 @@ Ext.define('GraphicDesigner.Rect', {
 	xtype : 'gdrect',
 	fill : 'white',
 	'fill-opacity' : 1,
-	minW : 20,
-	minH : 20,
+	'stroke-width' : 2,
 	getMoreGraphicDescription : function() {
 		return {
 			fill : this.fill,
-			'fill-opacity' : this['fill-opacity'],
-			minW : this.minW,
-			minH : this.minH
+			'fill-opacity' : this['fill-opacity']
 		};
 	},
 	getDefaultFrame : function() {
@@ -1283,17 +1461,15 @@ Ext.define('GraphicDesigner.Rect', {
 		};
 	},
 	getPreview : function(frame) {
-		var w = Math.min(frame.width, frame.height) - 5;
 		return [{
 			type : 'rect',
 			fill : 'white',
-			'stroke-width' : 1,
-			stroke : 'black',
-			x : frame.x + (frame.width - w) / 2,
-			y : frame.y + (frame.height - w) / 2,
-			width : w,
-			height : w
-		}]
+			x : frame.x,
+			y : frame.y,
+			width : frame.width - 4,
+			height : frame.height - 4
+		}];
+
 	},
 	redraw : function() {
 		this.set[0].attr(this.frame);
@@ -1303,27 +1479,25 @@ Ext.define('GraphicDesigner.Rect', {
 			type : 'rect',
 			fill : this.fill,
 			'fill-opacity' : this['fill-opacity'],
-			'stroke-width' : 2
+			'stroke-width' : this['stroke-width']
 		}];
 
 		this.callParent(arguments);
 	},
 	afterViewBuilt : function() {
-		var me = this;
-		this.labelDelegate = Ext.apply(Ext.clone(this.labelDelegate), {
+		this.labelDelegate = Ext.applyIf(Ext.clone(this.labelDelegate), {
 			xtype : 'gdlabeldelegate',
 			text : this.text,
 			getTextRect : function() {
 				return this.view.frame;
 			}
 		});
-		this.resizeDelegate = Ext.apply(Ext.clone(this.resizeDelegate), {
+		this.resizeDelegate = Ext.applyIf(Ext.clone(this.resizeDelegate), {
 			xtype : 'gdresizedelegate',
 			resizers : ['tl', 'tr', 'bl', 'br'],
-			minW : this.minW,
-			minH : this.minH,
 			showOutline : false
 		});
+
 	}
 });
 
@@ -1343,7 +1517,7 @@ Ext.define('GraphicDesigner.BaseObject', {
 //abstract
 Ext.define('GraphicDesigner.ViewDelegate', {
 	extend : 'GraphicDesigner.BaseObject',
-	xtype : 'gdabstractviewdelegate',
+	xtype : 'gdviewdelegate',
 	//return object in format: {onDrag: function() ...}
 	getEventListeners : Ext.emptyFn,
 	buildDelegate : Ext.emptyFn,
@@ -1474,7 +1648,6 @@ Ext.define('GraphicDesigner.DragDelegate', {
 		var startFrame;
 		return {
 			dragstart : function(x, y, e) {
-				me.view.set.toFront();
 				startFrame = me.view.frame;
 			},
 			dragmoving : function(dx, dy, x, y, e) {
@@ -1487,6 +1660,7 @@ Ext.define('GraphicDesigner.DragDelegate', {
 			},
 			dragend : function(e) {
 				startFrame = null;
+				GraphicDesigner.suspendClick();
 			}
 		};
 	}
@@ -1539,10 +1713,12 @@ Ext.define('GraphicDesigner.KeyDelegate', {
 							break;
 					}
 
-					me.endTask.cancel();
-					this.fireEvent('keymovestart');
+					if (event.keyCode >= 37 && event.keyCode <= 40) {
+						me.endTask.cancel();
+						this.fireEvent('keymovestart');
 
-					me.endTask.delay(400);
+						me.endTask.delay(400);
+					}
 				}
 			}
 		};
@@ -2337,9 +2513,10 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 			me.set.show();
 		}, Ext.emptyFn);
 
-		view.set.hover(function() {
-			me.set.show();
-		}, function() {
+		view.on('hover', function() {
+			me.set.toFront().show();
+		});
+		view.on('unhover', function() {
 			if (!view.selected) me.set.hide();
 		});
 
@@ -2349,6 +2526,13 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 	getEventListeners : function() {
 		var me = this;
 		return {
+			zindexed : function() {
+				if (me.view.selected) {
+					new Ext.util.DelayedTask(function(){
+						me.set.toFront();
+					}).delay(100);
+				}
+			},
 			selected : function() {
 				me.set.toFront().show();
 			},
@@ -2405,7 +2589,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 			.data('type', 'linkend')
 			.data('spec', spec).data('ownerCt', this)
 			.data('outlinkers', []).data('inlinkers', [])
-			.attr({fill : 'white', cursor : 'crosshair', stroke: '#883333'});
+			.attr({fill : 'white', cursor : 'crosshair', stroke: '#883333'}).click(function(e) { e.stopPropagation();});
 	}
 });
 
@@ -2427,24 +2611,26 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		};
 	},
 	textHolder : null,
-	toFront : function() {
-		this.textElement.toFront();
-	},
 	buildDelegate : function() {
 		var me = this;
 
 		this.textElement = this.view.set.paper.text(0, 0, '_')
 			.attr({
-				'font-size' : this['font-size']
+				'font-size' : this['font-size'],
+				'font-family' : 'STHeitiSC-Light, Helvetica, SimSun, Microsoft YaHei'
 			}).drag(function(dx, dy, x, y, e) {
 				me.view.fireEvent('dragmoving', dx, dy, x, y, e);
 			}, function(x, y ,e) {
+				e.stopPropagation();
 				me.view.fireEvent('dragstart', x, y, e);
 				me.view.ownerCt.fireEvent('viewclicked', me.view);
-				this.toFront();
 			}, function(e) {
 				me.view.fireEvent('dragend', e);
-			});
+			}).hover(function() {
+				me.view.fireEvent('hover');
+			}, function() {
+				me.view.fireEvent('unhover');
+			}).click(function(e) { e.stopPropagation();});
 
 		this.layoutTextElement();
 		this.setText(this.text);
@@ -2462,13 +2648,41 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		}).blur(function() {
 			me.endEdit();
 		}).keydown(function(e) {
-			if (e.keyCode == 13) me.endEdit();
+			if (e.keyCode == 13 || e.keyCode == 9) me.endEdit();
+			if (e.keyCode == 9) me.tabNext();
 		});
 
+	},
+	tabNext : function() {
+		//try 2 find next view label delegate & start edit!
+		var views = this.view.ownerCt.views;
+		if (views.length <= 1) return;
+
+		var i = views.indexOf(this.view);
+		while (true) {
+			i++;
+			var v = views[i % views.length];
+			if (v == null || v == this.view) return;
+
+			if (v.labelDelegate && v.labelDelegate.editable) {
+				//select it and start edit!
+				v.ownerCt.fireEvent('viewclicked', v);
+				new Ext.util.DelayedTask(function() {
+					v.labelDelegate.startEdit();
+				}).delay(50);
+				return;
+			}
+		}
 	},
 	getEventListeners : function() {
 		var me = this;
 		return {
+			click : function() {
+				me.endEdit();
+			},
+			deselected : function() {
+				me.endEdit();
+			},
 			keyup : function(e) {
 				if (!this.selected || this.editing) return;
 
@@ -2502,7 +2716,7 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 	},
 	layoutTextElement : function() {
 		var rect = this.getTextRect();
-		this.textElement.toFront().attr({
+		this.textElement.attr({
 			x : rect.x + rect.width / 2,
 			y : rect.y + rect.height / 2,
 			transform : this.getTransformStr()
@@ -2532,6 +2746,7 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		this.view.editing = true;
 	},
 	endEdit : function() {
+		if (!this.view.editing) return;
 		this.setText(this.textHolder.hide().val());
 
 		var me = this;
@@ -2542,7 +2757,7 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 	setText : function(text) {
 		this.text = text;
 		if (this.view.dragDelegate) {
-			this.textElement.toFront().attr('cursor', 'move');
+			this.textElement.attr('cursor', 'move');
 		}
 		this.textElement.attr('text', text).attr('title', text);
 		if (!this.text) {
@@ -2553,15 +2768,57 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 	}
 });
 
+Ext.define('GraphicDesigner.MultilineLabelDelegate', {
+	extend : 'GraphicDesigner.LabelDelegate',
+	xtype : 'gdmultilinelabeldelegate',
+	buildDelegate : function() {
+		var me = this;
+
+		this.textElement = this.view.set.paper.text(0, 0, '_')
+			.attr({
+				'font-size' : this['font-size']
+			}).drag(function(dx, dy, x, y, e) {
+				me.view.fireEvent('dragmoving', dx, dy, x, y, e);
+			}, function(x, y ,e) {
+				me.view.fireEvent('dragstart', x, y, e);
+				me.view.ownerCt.fireEvent('viewclicked', me.view);
+			}, function(e) {
+				me.view.fireEvent('dragend', e);
+			}).hover(function() {
+				me.view.fireEvent('hover');
+			}, function() {
+				me.view.fireEvent('unhover');
+			}).click(function(e) { e.stopPropagation();});
+
+		this.layoutTextElement();
+		this.setText(this.text);
+
+		//this.view.set.push(this.textElement);
+
+		this.textHolder = $('<textarea style="resize:none;outline:none;" />').hide();
+		$(this.view.set.paper.canvas).after(this.textHolder);
+		this.textHolder.css({
+			position : 'absolute',
+			'background-color' : 'transparent',
+			'border' : '2px solid #F7DDAA',
+			'border-radius' : 1,
+			'text-align' : 'center'
+		}).blur(function() {
+			me.endEdit();
+		}).keydown(function(e) {
+			if (e.keyCode == 13 && e.shiftKey) me.endEdit();
+			if (e.keyCode == 9) me.tabNext();
+		});
+
+	}
+});
+
 Ext.define('GraphicDesigner.ResizeDelegate', {
 	extend : 'GraphicDesigner.ViewDelegate',
 	xtype : 'gdresizedelegate',
 	resizers : ['tl', 't', 'tr', 'r', 'br', 'b', 'bl', 'l'],
 	showOutline : true,
-	set : null,
 	outline : null,
-	minW : 10,
-	minH : 10,
 	buildDelegate : function() {
 		var paper = this.view.set.paper;
 
@@ -2596,6 +2853,13 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 	getEventListeners : function() {
 		var me = this;
 		return {
+			zindexed : function() {
+				if (me.view.selected) {
+					new Ext.util.DelayedTask(function(){
+						me.set.toFront();
+					}).delay(100);
+				}
+			},
 			selected : function() {
 				me.set.toFront().show();
 			},
@@ -2603,7 +2867,8 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 				me.set.hide();
 			},
 			layout : function() { me.layoutElements();},
-			dragstart : function() { me.set.show().toFront();}
+			dragstart : function() { me.set.show().toFront();},
+			dragend : function() { me.set.toFront();}
 		};
 	},
 	doDestroy : function() {
@@ -2659,7 +2924,7 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 		var me = this;
 
 		var resizer = paper.rect(0, 0, 6, 6).attr({fill: 'white', stroke: '#883333'}).
-			data('type', 'resizer').data('spec', spec);
+			data('type', 'resizer').data('spec', spec).click(function(e) { e.stopPropagation();});
 
 		var ct = this.view.ownerCt;
 		resizer.drag(function(dx, dy) {
@@ -2674,8 +2939,8 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 			//});
 
 			var rect = {};
-			var minW = me.minW;
-			var minH = me.minH;
+			var minW = me.view.minW;
+			var minH = me.view.minH;
 			switch (this.data('spec')) {
 				case 'tl'://yes
 					var maxx = box.x + box.width - minW;
@@ -2784,18 +3049,11 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 			me.view.fireEvent('resize', rect, this.data('spec'), minX, minY, maxW, maxH);
 		}, function() {
 			this.obox = me.view.frame;
-			this.minW = me.view.minW ? me.view.minW : 10;
-			this.minH = me.view.minH ? me.view.minH : 10;
-
 		}, function(e) {
 			delete this.obox;
-			delete this.minW;
-			delete this.minH;
 			me.view.fireEvent('resizeend');
 
-			new Ext.util.DelayedTask(function() {
-				me.view.ownerCt.fireEvent('viewclicked', me.view);
-			}).delay(1);
+			GraphicDesigner.suspendClick();
 		});
 
 		return resizer;
@@ -2814,10 +3072,11 @@ Ext.define('GraphicDesigner.ToolboxDelegate', {
 		var paper = this.view.set.paper;
 		if (Ext.isEmpty(this.items)) return;
 
-		this.toolbox = $('<div class="gd-toolbox"></div>').hide();
+		this.toolbox = $('<div class="gd-toolbox"></div>').click(function(e) { e.stopPropagation();}).hide();
 		this.tooltip = $('<div class="gd-toolbox-tooltip"></div>').hide();
 		this.items.filter(function(item) {
 			var it = $('<div class="gd-toolbox-item ' + item.icon + '"></div>').hover(function() {
+				//hide all other visible toolboxes first!
 				me.tooltip.removeClass().addClass('gd-toolbox-tooltip ' + item.icon).text(' ' + item.title).show();
 			}, function() {
 				me.tooltip.hide();
@@ -2836,11 +3095,13 @@ Ext.define('GraphicDesigner.ToolboxDelegate', {
 			me.toolbox.hide();
 		});
 
-		this.view.set.hover(function() {
+		this.view.on('hover', function() {
+			$('.gd-toolbox:visible').hide();
 			disappearTask.cancel();
 			me.layoutElements();
 			me.toolbox.show();
-		}, function() {
+		});
+		this.view.on('unhover', function() {
 			disappearTask.delay(200);
 		});
 		this.toolbox.hover(function() {
@@ -3363,6 +3624,35 @@ Ext.define('GraphicDesigner.DockDelegate', {
 	}
 });
 
+Ext.define('GraphicDesigner.InspectorDelegate', {
+	extend : 'GraphicDesigner.ViewDelegate',
+	xtype : 'gdinspectordelegate',
+	bbEvent : function(eventName, args) {
+		this.view.ownerCt.attributesInspectorPanel ?
+			this.view.ownerCt.attributesInspectorPanel.updateByView(this.view, eventName, args) : null;
+	},
+	getEventListeners : function() {
+		var me = this;
+		var eventO = {
+			dragend : function() { me.bbEvent('dragend', arguments);},
+			keymoveend : function() { me.bbEvent('keymoveend', arguments);},
+			resizeend : function() { me.bbEvent('resizeend', arguments);},
+			selected : function() { me.bbEvent('selected', arguments);},
+			deselected : function() { me.bbEvent('deselected', arguments);}
+		};
+
+		Ext.each(this.otherBBEvents, function(e) {
+			eventO[e] = function() {
+				me.bbEvent(e, arguments);
+			}
+		});
+
+		return eventO;
+	},
+	//dragstart,layout ect.
+	otherBBEvents : []
+});
+
 Ext.define('GraphicDesigner.RotateDelegate', {
 	extend : 'GraphicDesigner.ViewDelegate',
 	xtype : 'gdrotatedelegate',
@@ -3446,7 +3736,10 @@ Ext.define('GraphicDesigner.SelectionModel', {
 		//add events...
 
 		this.documentClickListener = function() {
-			canvasPanel.fireEvent('canvasclicked');
+			if (!GraphicDesigner.suspendClickEvent) {
+				canvasPanel.fireEvent('canvasclicked');
+			}
+			delete GraphicDesigner.suspendClickEvent;
 		}
 		$(document).click(this.documentClickListener);
 
@@ -3456,14 +3749,16 @@ Ext.define('GraphicDesigner.SelectionModel', {
 		canvasPanel.on('viewclicked', function(view) {
 			me.clearPathSels();
 			canvasPanel.views.filter(function(v) {
-				if (v == view) {
-					//show resizers&linkends
-					v.selected = true;
-					v.fireEvent('selected');
+				if (v != view) {
+					if (v.selected) {
+						v.selected = false;
+						v.fireEvent('deselected');
+					}
 				} else {
-					//hide em
-					v.selected = false;
-					v.fireEvent('deselected');
+					if (!v.selected) {
+						v.selected = true;
+						v.fireEvent('selected');
+					}
 				}
 			});
 		});
@@ -3473,9 +3768,11 @@ Ext.define('GraphicDesigner.SelectionModel', {
 		this.clearPathSels();
 		this.ownerCt.views.filter(function(view) {
 			//hide em
-			view.resizeDelegate ? view.resizeDelegate.set.hide() : null;
-			view.linkDelegate ? view.linkDelegate.set.hide() : null;
-			view.selected = false;
+
+			if (view.selected) {
+				view.selected = false;
+				view.fireEvent('deselected');
+			}
 		});
 	},
 	getSelections : function() {
@@ -3501,7 +3798,7 @@ Ext.define('GraphicDesigner.ViewsetPanel', {
 	anchor : '100%',
 	bodyCls : 'gd-viewset-bg',
 	//viewTpls: must b an array&each one of it must in format like:
-	// {type : 'Graphic.xxxx or xtype', title: 'title', [previewConfig: {...}], [viewConfig: {...}]]}
+	// {type : 'Graphic.xxxx or xtype', [keyword: ''], title: 'title', [previewConfig: {...}], [viewConfig: {...}]]}
 	// [previewConfig&viewConfig is optional]
 	//title: template title
 	//previewConfig: config 4 preview ext.drawcomponent
@@ -3526,34 +3823,48 @@ Ext.define('GraphicDesigner.ViewsetPanel', {
 			}
 
 			me.items.push(Ext.apply({
-				xtype : 'draw',
+				viewTemplate : true,
+				xtype : 'panel',
 				width : 80,
 				height : 80,
+				header : false,
 				title : tpl.title,
+				keyword : tpl.keyword ? tpl.keyword : '',
 				cls : 'gd-view-prview-small',
 				viewCls : cls,
 				viewConfig : tpl.viewConfig,
 				viewBox: false,
-				draggable : true,
 				padding : 2,
-				items : cls.prototype.getPreview({
-					x : 0,
-					y : 0,
-					width : 76,
-					height : 76
-				}),
+				html : '<div scope="canvas" style="position:absolute;"></div>',
 				listeners : {
 					afterRender : function() {
+						var ele = $(this.body.dom).find('div[scope=canvas]');
+						ele.width(this.getWidth()).height(this.getHeight());
 						var previewer = this.ownerCt.ownerCt.previewer;
 
-						var me = this;
-						$(this.el.dom).css('cursor', 'move').hover(function() {
-							var draw = previewer.query('*[itemId=draw]')[0];
-							previewer.query('*[itemId=title]')[0].setValue(me.title);
-							draw.surface.removeAll(true);
-							draw.surface.add(me.viewCls.prototype.getPreview(draw.getFrame())).filter(function(o) {o.show(true);});
+						//draw preview
+						Raphael(ele[0]).add(cls.prototype.getPreview({
+							x : 4,
+							y : 4,
+							width : this.getWidth() - 8,
+							height : this.getHeight() - 8
+						}));
 
+						var me = this;
+						//previewer hover show/hide
+						$(this.body.dom).find('div[scope=canvas]').css('cursor', 'move').hover(function() {
+							//var draw = previewer.query('*[itemId=draw]')[0];
+							previewer.query('*[itemId=title]')[0].setValue(me.title);
 							previewer.show();
+							var paper = previewer.paper;
+							paper.clear();
+							paper.add(me.viewCls.prototype.getPreview({
+								x : 4,
+								y : 4,
+								width : paper.width - 8,
+								height : paper.height - 20
+							}));
+
 							previewer.alignTo(me.el, 'tr', [10, 0]);
 						}, function() {
 							previewer.hide();
@@ -3562,8 +3873,7 @@ Ext.define('GraphicDesigner.ViewsetPanel', {
 						var canvas = this.ownerCt.ownerCt.getCanvasPanel();
 						if (!canvas) return;
 
-						//=================drag put!=========================
-						var ele = $(this.el.dom);
+						//=================drag drop creation!=========================
 						ele.mousedown(function(e) {
 							if (e.button != 0) return;
 							$(this).data('mouseDownEvent', e);
@@ -3640,10 +3950,14 @@ Ext.define('GraphicDesigner.ViewsetPanel', {
 									var x = e.pageX - canvasFrame.x;
 									var y = e.pageY - canvasFrame.y;
 
-									var finalFrame = me.viewConfig.frame;
-									if (!finalFrame && me.viewConfig.getDefaultFrame) {
-										//try 2 get frame from func getDefaultFrame
-										finalFrame = me.viewConfig.getDefaultFrame();
+									var finalFrame = null;
+
+									if (me.viewConfig) {
+										finalFrame = me.viewConfig.frame;
+										if (!finalFrame && me.viewConfig.getDefaultFrame) {
+											//try 2 get frame from func getDefaultFrame
+											finalFrame = me.viewConfig.getDefaultFrame();
+										}
 									}
 									if (!finalFrame) {
 										//try 2 get frame from cls frame
@@ -3663,6 +3977,7 @@ Ext.define('GraphicDesigner.ViewsetPanel', {
 									canvas.fireLastCanvasClick();
 									new Ext.util.DelayedTask(function() {
 										canvas.fireEvent('viewclicked', v);
+										canvas.fireEvent('viewdropped', v);
 									}).delay(10);
 								}
 							};
@@ -3724,7 +4039,18 @@ Ext.define('GraphicDesigner.Viewtemplatelist', {
 	getCanvasPanel : Ext.emptyFn,
 	autoScroll : true,
 	viewsets : [],
+	filter : function(key) {
+		Ext.each(this.query('*[viewTemplate=true]'), function(p) {
+			p[p.keyword.indexOf(key) != -1 ? 'show' : 'hide']();
+		});
+	},
+	clearFilter : function() {
+		Ext.each(this.query('*[viewTemplate=true]'), function(p) {
+			p.show();
+		});
+	},
 	initComponent : function() {
+		window.tpll = this;
 		this.previewer = Ext.widget({
 			xtype: 'toolbar',
 			vertical : true,
@@ -3733,42 +4059,30 @@ Ext.define('GraphicDesigner.Viewtemplatelist', {
 			fixed: true,
 			cls : 'gd-view-previewer',
 			shadow : false,
+			width : 200,
+			height : 150,
+			layout : 'fit',
 			items : [{
 				xtype : 'panel',
 				cls : 'gd-previewer-panel',
-				layout : 'fit',
-				height : 150,
-				items : [{
-					xtype : 'draw',
-					itemId : 'draw',
-					width : 200,
-					height : 160,
-					style : 'background-color:#F9F9F9;',
-					viewBox: false,
-					padding : 5,
-					listeners : {
-						afterRender : function() {
-							window.ddd = this;
-						}
-					},
-					getFrame : function() {
-						return {
-							x : 0,
-							y : 0,
-							width : 190,
-							height : 90
-						};
-					},
-					items : [{
-						type : 'text',
-						text : 'afdafdaf'
-					}]
-				}],
-				bbar : ['->', {
-					itemId : 'title',
-					xtype : 'displayfield',
-					value : ''
-				}, '->']
+				style : 'margin-bottom:0px;',
+				bodyStyle : 'background-color:transparent;',
+				bodyPadding : 5,
+				html : '<div scope="canvas" style="width:188px;height:108px;"></div>',
+				listeners : {
+					afterRender : function() {
+						var ele = $(this.body.dom).find('div[scope=canvas]');
+						this.ownerCt.paper = Raphael(ele[0]);
+					}
+				},
+				bbar : {
+					style : 'padding:0px!important;',
+					items : ['->', {
+						itemId : 'title',
+						xtype : 'displayfield',
+						value : ''
+					}, '->']
+				}
 			}]
 		});
 		this.previewer.show();
@@ -3777,13 +4091,21 @@ Ext.define('GraphicDesigner.Viewtemplatelist', {
 		this.items = this.viewsets;
 
 		this.callParent();
+	},
+	afterRender : function() {
+		this.callParent(arguments);
+
+		var me = this;
+		new Ext.util.DelayedTask(function(){
+			me.doLayout();
+		}).delay(20);
 	}
 });
 
 //==================attributes inspector================================
 Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 	extend : 'Ext.toolbar.Toolbar',
-	xtype : 'attributesinspectorpanel',
+	xtype : 'gdattributesinspectorpanel',
 	cls : 'gd-attr-inspector',
 	shadow : false,
 	defaults : {
@@ -3793,21 +4115,53 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 	inspectors : [{
 		xtype : 'gdcanvasinfoinspector'
 	}, {
-		xtype : 'gdviewattrinspector'
+		xtype : 'gdframeinfoinspector'
 	}],
+	updateByView : function(view, eventName, args) {
+		if (!this.__VIEW_INSPECTORS) this.__VIEW_INSPECTORS = this.query('*[observeTarget=view]');
+
+		this.__VIEW_INSPECTORS.filter(function(insp) {
+			insp.update ? insp.update(view, eventName, args) : null;
+		});
+
+	},
+	updateByCanvas : function() {},//...TODO
+	onShow : function() {
+		this.query('button[pressed=true]').filter(function(b) {
+			b.infoPanel ? b.fireEvent('toggle', b, true) : null;
+		});
+
+		this.callParent(arguments);
+	},
+	onHide : function() {
+		this.query('button[pressed=true]').filter(function(b) {
+			b.infoPanel ? b.infoPanel.hide() : null;
+		});
+
+		this.callParent(arguments);
+	},
 	initComponent : function() {
 		this.vertical = true;
 		this.floating = true;
 		this.fixed = true;
 
 		var toggleGroup = Ext.id() + '-inspector-toggle-group';
-		Ext.each(this.inspectors, function(c) {c.toggleGroup = toggleGroup;c.allowDepress = false;});
+		Ext.each(this.inspectors, function(c) {c.toggleGroup = toggleGroup;c.allowDepress = true;});
 		this.items =  this.inspectors;
 
 		this.callParent();
 	},
+	layoutInspector : function() {
+		this.query('button[pressed=true]').filter(function(b) {
+			b.infoPanel ? b.fireEvent('toggle', b, true) : null;
+		});
+	},
 	afterRender : function() {
-		$(this.el.dom).prepend('<div class="gd-attr-inspector-header"></div>');
+		var me = this;
+		$(this.el.dom).click(function(e) {
+			e.stopPropagation();
+			me.owner.fireLastCanvasClick();
+		}).prepend('<div class="gd-attr-inspector-header"></div>');
 		//toggle first!
 
 		this.callParent();
@@ -3817,9 +4171,9 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 		}
 	}
 });
-//------------inspectors---------------
+				//------------inspectors---------------
 Ext.define('GraphicDesigner.Inspector', {
-	xtype : 'gdabstractinspector',
+	xtype : 'gdinspector',
 	extend : 'Ext.button.Button',
 	iconCls : 'gd-inspector-item-icon',
 	title : '',
@@ -3828,6 +4182,7 @@ Ext.define('GraphicDesigner.Inspector', {
 		height : 300
 	},
 	panelConfig : {},
+	observeTarget : 'view',
 	//private
 	layoutInfoPanel : function(callback) {
 		var me = this;
@@ -3846,31 +4201,45 @@ Ext.define('GraphicDesigner.Inspector', {
 			shadow : false,
 			cls : 'gd-attr-inspector-floating-panel',
 			style : 'padding:0px!important;',
-			items : [Ext.apply({
-				xtype : 'panel',
+			layout : 'border',
+			listeners : {
+				afterRender : function() {
+					$(this.el.dom).click(function(e) {
+						e.stopPropagation();
+						me.ownerCt.owner.fireLastCanvasClick();
+					});
+				}
+			},
+			items : [{
+				xtype : 'header',
+				cls : 'gd-inspector-panel-header',
 				title : this.title,
-				width : this.panelSize.width,
-				height : this.panelSize.height,
-				headerCls : 'gd-inspector-panel-header',
+				region : 'north',
+				style : 'margin-bottom:0px;',
+				height : 20,
 				listeners : {
 					afterRender : function() {
-						if (this.headerCls) {
-							Ext.fly(this.el.query('.x-panel-header-default')[0]).addCls(this.headerCls);
-							Ext.fly(this.el.query('.x-header-text')[0]).addCls(this.headerCls + '-text');
+						Ext.fly(this.el.query('.x-header-text')[0]).addCls('gd-inspector-panel-header-text');
 
-							$(this.header.el.dom).append('<div class="gdicon-fast_forward gd-inspector-panel-collapse"></div>')
-								.find('.gd-inspector-panel-collapse').click(function() {
-									me.toggle(false);
-								});
-						}
+						$(this.el.dom).append('<div class="gdicon-fast_forward gd-inspector-panel-header-btn"></div>')
+							.find('.gd-inspector-panel-header-btn').click(function() {
+								me.toggle(false);
+							});
 					}
 				}
+
+			}, Ext.apply({
+				xtype : 'panel',
+				region : 'center'
 			}, this.panelConfig)],
 			width : this.panelSize.width,
 			height : this.panelSize.height,
 			floating : true
 		});
 		this.infoPanel.hide();
+		this.infoPanel.getComponent(1).on('afterRender', function() {
+			$(this.el.dom).css('margin-bottom', '0px');
+		});
 
 		this.on('toggle', function(b, p) {
 			this.layoutInfoPanel(function(ip) {
@@ -3895,32 +4264,252 @@ Ext.define('GraphicDesigner.Inspector', {
 Ext.define('GraphicDesigner.CanvasInfoInspector', {
 	extend : 'GraphicDesigner.Inspector',
 	xtype : 'gdcanvasinfoinspector',
-	iconCls : 'gd-inspector-item-icon gdicon-file-empty',
+	iconCls : 'gd-inspector-item-icon gdicon-navigation2',
 	title : 'preview',
+	observeTarget : 'view',
 	initComponent : function() {
 		this.panelSize = {
 			width : 250,
-			height : 300
-		}
-		this.panelConfig = {};
+			height : 350
+		};
+		this.panelConfig = {
+			bodyPadding : 5,
+			bodyStyle : 'background-color:transparent;',
+			html : '<div style="height:100%;padding:5px;" align="center"><canvas class="gd-canvas-preview-canvas"></canvas><hr /></div>',
+			bbar : {
+				cls : 'gd-inspector-panel-toolbar',
+				items : ['Scale:', {
+					xtype : 'numberfield',
+					width : 80,
+					style : 'margin-left:5px;'
+				}, '->', {
+					tooltip : 'presentation',
+					iconCls : 'gdicon-presentation gd-canvas-preview-btn',
+					style : 'margin-right:3px;'
+				}, {
+					iconCls : 'gdicon-expand gd-canvas-preview-btn'
+				}]
+			}
+		};
 
 		this.callParent();
+	},
+	update : function(view, eventName, args) {
+		var img = new Image;
+
+		var can = $(this.infoPanel.el.dom).find('canvas');
+		var ctx = can[0].getContext('2d');
+
+		var w = 1280;
+		var h = 800;
+		img.onload = function() {
+			// step it down only once to 1/6 size:
+			ctx.drawImage(img, 0, 0, w/6, h/6);
+
+			// Step it down several times
+			var can2 = document.createElement('canvas');
+			can2.width = w / 2;
+			can2.height = w / 2;
+			var ctx2 = can2.getContext('2d');
+
+			// Draw it at 1/2 size 3 times (step down three times)
+
+			ctx2.drawImage(img, 0, 0, w / 2, h / 2);
+			ctx2.drawImage(can2, 0, 0, w / 2, h / 2, 0, 0, w / 4, h / 4);
+			ctx2.drawImage(can2, 0, 0, w / 4, h / 4, 0, 0, w / 6, h / 6);
+			ctx.drawImage(can2, 0, 0, w / 6, h / 6, 0, 200, w / 6, h / 6);
+		}
+
+		img.src = 'http://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Equus_quagga_%28Namutoni%2C_2012%29.jpg/1280px-Equus_quagga_%28Namutoni%2C_2012%29.jpg'
+
+
+		return;
+
+		//img[0].src = 'http://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Equus_quagga_%28Namutoni%2C_2012%29.jpg/1280px-Equus_quagga_%28Namutoni%2C_2012%29.jpg'
+		//'data:image/svg+xml,' + encodeURIComponent((new XMLSerializer).serializeToString(this.ownerCt.owner.getCanvas()));
+		img.on('load', function() {
+			img.width(160).height(256);
+		});
+
+		window.img = img;
+		//
+		//var ctx = canvas[0].getContext('2d');
+		//
+		//ctx.clearRect(0, 0, 1000, 1000);
+		//$(document.body).append(img);
+		//img.onload = function() {
+		//	console.log('>>>>', img.width, img.height, '++++', canvas.width(), canvas.height());
+		//	ctx.drawImage(img, 0, 0, canvas.width(), canvas.height());
+		//
+		//	$(img).remove();
+		//	//tgtImage.src = can.toDataURL();
+		//};
+return;
+		Ext.widget({
+			xtype : 'yesnowindow',
+			width : 800,
+			height : 600,
+			layout : 'fit',
+			modal : true,
+			items : {
+				xtype : 'panel',
+				layout : 'fit',
+				autoScroll : true,
+				html : '<div scope="123" style="width:100%;height:100%;"><canvas style="background-color: red;width:100%;height:100%;"></canvas></div>',
+				listeners : {
+					afterRender : function() {
+						$(this.el.dom).find('canvas')[0].getContext('2d').drawImage(img[0], 0, 0, 800, 1280);
+					}
+				}
+			}
+		}).show();
+		//ctx.drawImage(img, 0, 0, 150, 220);
+		//console.log(canvas[0].toDataURL());
+		//
+		//
+		//this.infoPanel.getComponent(0).getComponent(0).setSrc('data:image/svg+xml,' + encodeURIComponent((new XMLSerializer).serializeToString(this.ownerCt.owner.getCanvas())));
 	}
 });
 
-Ext.define('GraphicDesigner.ViewAttrInspector', {
+Ext.define('GraphicDesigner.FrameInfoInspector', {
 	extend : 'GraphicDesigner.Inspector',
-	xtype : 'gdviewattrinspector',
-	iconCls : 'gd-inspector-item-icon gdicon-info_outline',
-	title : 'attributes',
+	xtype : 'gdframeinfoinspector',
+	iconCls : 'gd-inspector-item-icon gdicon-ruler3',
+	title : 'Position & Size',
+	labels : ['X', 'Y', 'W', 'H'],
+	observeTarget : 'view',
+	update : function(view, eventName, args) {
+		var fields = this.infoPanel.query('numberfield');
+		if (['dragend', 'selected', 'resizeend', 'keymoveend'].indexOf(eventName) != -1) {
+			this.view = view;
+			//update values
+			fields.filter(function(f) {
+				f.enable();
+				f.suspendEvents(false);
+				switch (f.scope) {
+					case 'x' :
+						f.setValue(view.frame.x);
+						break;
+					case 'y' :
+						f.setValue(view.frame.y);
+						break;
+					case 'w' :
+						f.setValue(view.frame.width);
+						break;
+					case 'h' :
+						f.setValue(view.frame.height);
+						break;
+				}
+				f.resumeEvents();
+			});
+		} else if (eventName == 'deselected') {
+			fields.filter(function(f) {f.disable();});
+			delete this.view;
+		};
+	},
 	initComponent : function() {
+		var me = this;
 		this.panelSize = {
 			width : 200,
-			height : 200
+			height : 120
 		}
-		this.panelConfig = {};
+		this.panelConfig = {
+			layout : 'vbox',
+			defaults : {
+				xtype : 'toolbar'
+			},
+			items : [{
+				style : 'background-color:transparent;',
+				items : [{
+					xtype : 'label',
+					html : this.labels[0],
+					style : 'width:20px;'
+				}, {
+					xtype : 'numberfield',
+					step : 5,
+					scope : 'x',
+					value : 0,
+					width : 65,
+					listeners : {
+						change : function(f, v) {
+							me.view.frame.x = this.getValue();
+							me.view.layoutInRect(me.view.frame);
+							me.view.fireEvent('keymoveend');
+						}
+					}
+				}, {
+					xtype : 'label',
+					html : this.labels[2],
+					style : 'width:20px;margin-left:10px;'
+				}, {
+					xtype : 'numberfield',
+					step : 5,
+					scope : 'w',
+					value : 20,
+					width : 65,
+					listeners : {
+						change : function(f, v) {
+							var ct = me.ownerCt.owner;
+							me.view.frame.width = this.getValue();
+							if (ct.constraint) {
+								me.view.frame.width = Math.min(me.view.frame.width, ct.paperWidth - ct.constraintPadding - ct.constraintPadding - me.view.frame.x);
+							}
+							me.view.layoutInRect(me.view.frame);
+							me.view.fireEvent('resizeend');
+						}
+					}
+				}]
+			}, {
+				style : 'background-color:transparent;',
+				items : [{
+					xtype : 'label',
+					html : this.labels[1],
+					style : 'width:20px;'
+				}, {
+					xtype : 'numberfield',
+					step : 5,
+					scope : 'y',
+					value : 0,
+					width : 65,
+					listeners : {
+						change : function(f, v) {
+							me.view.frame.y = this.getValue();
+							me.view.layoutInRect(me.view.frame);
+							me.view.fireEvent('keymoveend');
+						}
+					}
+				}, {
+					xtype : 'label',
+					html : this.labels[3],
+					style : 'width:20px;margin-left:10px;'
+				}, {
+					xtype : 'numberfield',
+					step : 5,
+					scope : 'h',
+					value : 20,
+					width : 65,
+					listeners : {
+						change : function(f, v) {
+							var ct = me.ownerCt.owner;
+							me.view.frame.height = this.getValue();
+							if (ct.constraint) {
+								me.view.frame.height = Math.min(me.view.frame.height, ct.paperHeight - ct.constraintPadding - ct.constraintPadding - me.view.frame.y);
+							}
+							me.view.layoutInRect(me.view.frame);
+							me.view.fireEvent('resizeend');
+						}
+					}
+				}]
+			}],
+			listeners : {
+				afterRender : function() {
+					me.update(null, 'deselected');
+				}
+			}
+		};
 
 		this.callParent();
 	}
 });
+
 
