@@ -342,7 +342,7 @@ Ext.override(Ext.layout.container.Auto, {
 
 		if (xauto || yauto) {
 			scrollbarSize = Ext.getScrollbarSize();
-			if (this.owner.bodyCls == 'gd-view-template-list') {
+			if (this.owner.bodyCls == 'gd-view-template-list' || this.owner.bodyCls == 'gd-scrollbar') {
 				scrollbarSize.width = 9;
 				scrollbarSize.height = 9;
 			}
@@ -378,7 +378,7 @@ Ext.override(Ext.layout.container.Auto, {
 	}
 });
 
-Array.prototype.move = function (from, to) {
+Array.prototype.gdmove = function (from, to) {
 	this.splice(to, 0, this.splice(from, 1)[0]);
 };
 
@@ -461,15 +461,39 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	getCanvas : function() {
 		return this.paper.canvas;
 	},
-	getDataUrl : function() {
-		//var canvas = $('<canvas></canvas>');
-		//var img = $('<image />');
-		//
-		//window.img = img;
-		//img.src = 'data:image/svg+xml,' + encodeURIComponent((new XMLSerializer).serializeToString(this.getCanvas()));
-		////TODO
-		//window.open(img.src);
-		return 'data:image/svg+xml,' + encodeURIComponent((new XMLSerializer).serializeToString(this.getCanvas()));
+	getDataUrl : function(pure) {
+		if (pure) this.selModel ? this.selModel.clearSelection() : null;
+
+		var svgAsXML = (new XMLSerializer).serializeToString(this.getCanvas());
+		return "data:image/svg+xml," + encodeURIComponent(svgAsXML);
+	},
+	getPngUrl : function() {
+		var svg = $(this.getCanvas());
+		var img = $('<image src="' + this.getDataUrl(true) + '" />');
+		img.width(svg.width()).height(svg.height());
+		$(document.body).append(img);
+		img.on('load', function() { $(this).hide();});
+
+		var cvs = $('<canvas></canvas>');
+		cvs.attr('width', svg.width()).attr('height', svg.height());
+
+		var ctx = cvs[0].getContext('2d');
+		ctx.drawImage(img[0], 0, 0, svg.width(), svg.height());
+
+		var url = cvs[0].toDataURL();
+		img.remove();
+		cvs.remove();
+		return url;
+	},
+	downloadImage : function(fileName) {
+		var dt = this.getPngUrl();
+		dt = dt.replace(/^data:image\/[^;]*/, 'data:application/octet-stream');
+		dt = dt.replace(/^data:application\/octet-stream/, 'data:application/octet-stream;headers=Content-Disposition%3A%20attachment%3B%20');
+
+		var link = $('<a href="#" download="' + fileName + '.png"></a>');
+		link.attr('href', dt);
+		link[0].click();
+		link.remove();
 	},
 	fullscreen : function(element) {
 		if(!element) {
@@ -933,7 +957,7 @@ Ext.define('GraphicDesigner.View', {
 		var idx = ct.views.indexOf(this);
 		if (idx == -1 || idx == ct.views.length - 1) return;
 
-		ct.views.move(idx, idx + 1);
+		ct.views.gdmove(idx, idx + 1);
 		ct.orderViewsZIndex();
 	},
 	flipToBack : function() {
@@ -941,7 +965,7 @@ Ext.define('GraphicDesigner.View', {
 		var idx = ct.views.indexOf(this);
 		if (idx == -1 || idx == 0) return;
 
-		ct.views.move(idx, idx - 1);
+		ct.views.gdmove(idx, idx - 1);
 		ct.orderViewsZIndex();
 
 		this.fireEvent('zindexed');
@@ -951,7 +975,7 @@ Ext.define('GraphicDesigner.View', {
 		var idx = ct.views.indexOf(this);
 		if (idx == -1 || idx == ct.views.length - 1) return;
 
-		ct.views.move(idx, ct.views.length - 1);
+		ct.views.gdmove(idx, ct.views.length - 1);
 		ct.orderViewsZIndex();
 
 		this.fireEvent('zindexed');
@@ -961,7 +985,7 @@ Ext.define('GraphicDesigner.View', {
 		var idx = ct.views.indexOf(this);
 		if (idx == -1 || idx == 0) return;
 
-		ct.views.move(idx, 0);
+		ct.views.gdmove(idx, 0);
 		ct.orderViewsZIndex();
 
 		this.fireEvent('zindexed');
@@ -1135,6 +1159,7 @@ Ext.define('GraphicDesigner.View', {
 		this.set.remove();
 
 		this.ownerCt ? this.ownerCt.removeView(this) : null;
+		this.inspectorDelegate ? this.inspectorDelegate.bbEvent('destroy', []) : null;
 
 		this.destroyed = true;
 	}
@@ -2544,8 +2569,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 				me.redrawInOutLinkers();
 			},
 			dragstart : function() {
-				me.set.toFront();
-				me.set.show();
+				me.set.toFront().show();
 			}
 		};
 	},
@@ -2867,8 +2891,7 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 				me.set.hide();
 			},
 			layout : function() { me.layoutElements();},
-			dragstart : function() { me.set.show().toFront();},
-			dragend : function() { me.set.toFront();}
+			dragstart : function() { me.set.show().toFront();}
 		};
 	},
 	doDestroy : function() {
@@ -2876,6 +2899,16 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 	},
 	layoutElements : function() {
 		var box = this.view.frame;
+
+		if (this.outline) {
+			var box = this.view.frame;
+			this.outline.attr({
+				x : box.x,
+				y : box.y,
+				width : box.width,
+				height : box.height
+			});
+		}
 
 		this.set.forEach(function(ele) {
 			if (ele.data('type') != 'resizer') return;
@@ -2908,15 +2941,6 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 			}
 		});
 
-		if (this.outline) {
-			var box = this.view.frame;
-			this.outline.attr({
-				x : box.x,
-				y : box.y,
-				width : box.width,
-				height : box.height
-			});
-		}
 	},
 	//private
 	produceResizer : function(spec) {
@@ -4113,6 +4137,8 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 		height : 30
 	},
 	inspectors : [{
+	//	xtype : 'gdinspector'
+	//}, {
 		xtype : 'gdcanvasinfoinspector'
 	}, {
 		xtype : 'gdframeinfoinspector'
@@ -4201,7 +4227,7 @@ Ext.define('GraphicDesigner.Inspector', {
 			shadow : false,
 			cls : 'gd-attr-inspector-floating-panel',
 			style : 'padding:0px!important;',
-			layout : 'border',
+			layout : 'column',
 			listeners : {
 				afterRender : function() {
 					$(this.el.dom).click(function(e) {
@@ -4214,9 +4240,9 @@ Ext.define('GraphicDesigner.Inspector', {
 				xtype : 'header',
 				cls : 'gd-inspector-panel-header',
 				title : this.title,
-				region : 'north',
 				style : 'margin-bottom:0px;',
 				height : 20,
+				columnWidth : 1,
 				listeners : {
 					afterRender : function() {
 						Ext.fly(this.el.query('.x-header-text')[0]).addCls('gd-inspector-panel-header-text');
@@ -4230,7 +4256,8 @@ Ext.define('GraphicDesigner.Inspector', {
 
 			}, Ext.apply({
 				xtype : 'panel',
-				region : 'center'
+				height : this.panelSize.height - 20,
+				columnWidth : 1,
 			}, this.panelConfig)],
 			width : this.panelSize.width,
 			height : this.panelSize.height,
@@ -4269,15 +4296,17 @@ Ext.define('GraphicDesigner.CanvasInfoInspector', {
 	observeTarget : 'view',
 	initComponent : function() {
 		this.panelSize = {
-			width : 250,
-			height : 350
+			width : 220,
+			height : 243
 		};
+		var me = this;
 		this.panelConfig = {
 			bodyPadding : 5,
 			bodyStyle : 'background-color:transparent;',
-			html : '<div style="height:100%;padding:5px;" align="center"><canvas class="gd-canvas-preview-canvas"></canvas><hr /></div>',
+			html : '<div style="height:100%;padding:5px;" align="center"><canvas class="gd-canvas-preview-canvas"></canvas><div class="gd-splitter-h" style="margin-top:5px;"></div></div>',
 			bbar : {
 				cls : 'gd-inspector-panel-toolbar',
+				style : 'padding-bottom:8px;',
 				items : ['Scale:', {
 					xtype : 'numberfield',
 					width : 80,
@@ -4289,85 +4318,31 @@ Ext.define('GraphicDesigner.CanvasInfoInspector', {
 				}, {
 					iconCls : 'gdicon-expand gd-canvas-preview-btn'
 				}]
+			},
+			listeners : {
+				afterRender : function() {
+					me.update();
+				}
 			}
 		};
 
 		this.callParent();
 	},
-	update : function(view, eventName, args) {
-		var img = new Image;
+	update : function() {
+		try {
+			var svg = $(this.ownerCt.owner.getCanvas());
+			var img = $('<image src="' + this.ownerCt.owner.getDataUrl() + '" />');
+			img.width(svg.width()).height(svg.height());
+			$(this.el.dom).append(img);
 
-		var can = $(this.infoPanel.el.dom).find('canvas');
-		var ctx = can[0].getContext('2d');
+			var cvs = $(this.infoPanel.el.dom).find('canvas');
+			cvs.attr('width', svg.width()).attr('height', svg.height());
 
-		var w = 1280;
-		var h = 800;
-		img.onload = function() {
-			// step it down only once to 1/6 size:
-			ctx.drawImage(img, 0, 0, w/6, h/6);
+			var ctx = cvs[0].getContext('2d');
+			ctx.drawImage(img[0], 0, 0, svg.width(), svg.height());
 
-			// Step it down several times
-			var can2 = document.createElement('canvas');
-			can2.width = w / 2;
-			can2.height = w / 2;
-			var ctx2 = can2.getContext('2d');
-
-			// Draw it at 1/2 size 3 times (step down three times)
-
-			ctx2.drawImage(img, 0, 0, w / 2, h / 2);
-			ctx2.drawImage(can2, 0, 0, w / 2, h / 2, 0, 0, w / 4, h / 4);
-			ctx2.drawImage(can2, 0, 0, w / 4, h / 4, 0, 0, w / 6, h / 6);
-			ctx.drawImage(can2, 0, 0, w / 6, h / 6, 0, 200, w / 6, h / 6);
-		}
-
-		img.src = 'http://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Equus_quagga_%28Namutoni%2C_2012%29.jpg/1280px-Equus_quagga_%28Namutoni%2C_2012%29.jpg'
-
-
-		return;
-
-		//img[0].src = 'http://upload.wikimedia.org/wikipedia/commons/thumb/a/a4/Equus_quagga_%28Namutoni%2C_2012%29.jpg/1280px-Equus_quagga_%28Namutoni%2C_2012%29.jpg'
-		//'data:image/svg+xml,' + encodeURIComponent((new XMLSerializer).serializeToString(this.ownerCt.owner.getCanvas()));
-		img.on('load', function() {
-			img.width(160).height(256);
-		});
-
-		window.img = img;
-		//
-		//var ctx = canvas[0].getContext('2d');
-		//
-		//ctx.clearRect(0, 0, 1000, 1000);
-		//$(document.body).append(img);
-		//img.onload = function() {
-		//	console.log('>>>>', img.width, img.height, '++++', canvas.width(), canvas.height());
-		//	ctx.drawImage(img, 0, 0, canvas.width(), canvas.height());
-		//
-		//	$(img).remove();
-		//	//tgtImage.src = can.toDataURL();
-		//};
-return;
-		Ext.widget({
-			xtype : 'yesnowindow',
-			width : 800,
-			height : 600,
-			layout : 'fit',
-			modal : true,
-			items : {
-				xtype : 'panel',
-				layout : 'fit',
-				autoScroll : true,
-				html : '<div scope="123" style="width:100%;height:100%;"><canvas style="background-color: red;width:100%;height:100%;"></canvas></div>',
-				listeners : {
-					afterRender : function() {
-						$(this.el.dom).find('canvas')[0].getContext('2d').drawImage(img[0], 0, 0, 800, 1280);
-					}
-				}
-			}
-		}).show();
-		//ctx.drawImage(img, 0, 0, 150, 220);
-		//console.log(canvas[0].toDataURL());
-		//
-		//
-		//this.infoPanel.getComponent(0).getComponent(0).setSrc('data:image/svg+xml,' + encodeURIComponent((new XMLSerializer).serializeToString(this.ownerCt.owner.getCanvas())));
+			img.remove();
+		} catch(e) {}
 	}
 });
 

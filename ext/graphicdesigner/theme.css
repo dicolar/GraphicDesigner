@@ -19,6 +19,12 @@
 	background-image: url(images/canvas_bg.jpg);
 }
 
+div.gd-splitter-h {
+	height : 2px;
+	border-top : 1px #888888 solid;
+	border-bottom : 1px white solid;
+}
+
 .gd-canvas-container {
 	position: absolute;
 	background-color: #F2F2F2;
@@ -65,7 +71,6 @@
 }
 .gd-inspector-panel-header {
 	height : 20px;
-	padding-top : 1px;
 	background-image: url(images/inspector-header-bg.png);
 }
 .gd-inspector-panel-header-text {
@@ -77,8 +82,8 @@
 
 .gd-canvas-preview-canvas {
 	border: 1px #888888 solid;
-	width: 162px;
-	height: 258px;
+	width: 120px;
+	height: 160px;
 	background-color: white;
 }
 .gd-canvas-preview-btn {
