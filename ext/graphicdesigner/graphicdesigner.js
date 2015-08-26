@@ -387,16 +387,77 @@ var GraphicDesigner = GraphicDesigner || {};
 
 GraphicDesigner.suspendClick = function() {
 	GraphicDesigner.suspendClickEvent = true;
-	new Ext.util.DelayedTask(function(){
+	setTimeout(function() {
 		delete GraphicDesigner.suspendClickEvent;
-	}).delay(30);
+	}, 30);
 }
 
-GraphicDesigner.transformShapeIntoFrame = function(ele, frame) {
+GraphicDesigner.isBBoxInBBox = function(b, pb, excludeBound) {
+	b.x2 = b.x + b.width;
+	b.y2 = b.y + b.height;
+	pb.x2 = pb.x + pb.width;
+	pb.y2 = pb.y + pb.height;
+	if (excludeBound) {
+		return b.x > pb.x && b.x2 < pb.x2 && b.y > pb.y && b.y2 < pb.y2;
+	}
+
+	return b.x >= pb.x && b.x2 <= pb.x2 && b.y >= pb.y && b.y2 <= pb.y2;
+}
+
+GraphicDesigner.isPointInBox = function(x, y, b, excludeBound) {
+	b.x2 = b.x + b.width;
+	b.y2 = b.y + b.height;
+	if (excludeBound) {
+		return x < b.x2 && x > b.x && y < b.y2 && y > b.y;
+	}
+
+	return x <= b.x2 && x >= b.x && y <= b.y2 && y >= b.y;
+}
+
+GraphicDesigner.isBBoxIntersect = function(b1, b2, excludeBound) {
+	b1.x2 = b1.x + b1.width;
+	b1.y2 = b1.y + b1.height;
+	b2.x2 = b2.x + b2.width;
+	b2.y2 = b2.y + b2.height;
+
+	if (!excludeBound) return Raphael.isBBoxIntersect(b1, b2);
+
+	//exclude bound!
+	if (b1.x == b2.x && b1.x2 == b2.x2) {
+		//check y?
+		if (b1.y2 <= b2.y || b1.y >= b2.y2) {
+			return false;
+		}
+		return true;
+	}
+	if (b1.y == b2.y && b1.y2 == b2.y2) {
+		//check x?
+		if (b1.x2 <= b2.x || b1.x >= b2.x2) {
+			return false;
+		}
+		return true;
+	}
+
+	var i = GraphicDesigner.isPointInBox;
+	return i(b1.x, b1.y, b2, excludeBound)
+		|| i(b1.x2, b1.y, b2, excludeBound)
+		|| i(b1.x, b1.y2, b2, excludeBound)
+		|| i(b1.x2, b1.y2, b2, excludeBound)
+		|| i(b2.x, b2.y, b1, excludeBound)
+		|| i(b2.x2, b2.y, b1, excludeBound)
+		|| i(b2.x, b2.y2, b1, excludeBound)
+		|| i(b2.x2, b2.y2, b1, excludeBound);
+}
+
+GraphicDesigner.transformShapeIntoFrame = function(ele, frame, autoExpand) {
 	ele.transform('');
 	var box = ele.getBBox();
 	var w = box.width;
 	var h = box.height;
+
+	if (autoExpand) {
+		return ele.transform('T' + (frame.x - box.x) + ',' + (frame.y - box.y) + 'S' + frame.width / w + ',' + frame.height / h + ',' + frame.x + ',' + frame.y);
+	}
 
 	var scale = Math.min(frame.width / w, frame.height / h);
 	return ele.transform('T' + (frame.x - box.x) + ',' + (frame.y - box.y) + 'S' + scale + ',' + scale + ',' + frame.x + ',' + frame.y);
@@ -436,6 +497,12 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	},
 	attributesInspectorPanel : {
 		xtype : 'gdattributesinspectorpanel'
+	},
+	clipboard : {
+		xtype : 'gdclipboard'
+	},
+	shortcutController : {
+		xtype : 'gdshortcutcontroller'
 	},
 	//when restore view,and u need 2 inject some extra configs on it,implement this!
 	//args:config	--just add more configs into it
@@ -593,6 +660,14 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 		this.attributesInspectorPanel ? this.attributesInspectorPanel = Ext.widget(this.attributesInspectorPanel) : null;
 		this.attributesInspectorPanel ? this.attributesInspectorPanel.owner = this : null;
 
+		this.shortcutController ? this.shortcutController = Ext.widget(this.shortcutController) : null;
+		this.shortcutController ? this.shortcutController.owner = this : null;
+		this.shortcutController ? this.shortcutController.build() : null;
+
+		this.clipboard ? this.clipboard = Ext.widget(this.clipboard) : null;
+		this.clipboard ? this.clipboard.owner = this : null;
+		this.clipboard ? this.clipboard.build() : null;
+
 		window.cp = this;
 		if (this.constraintPadding < 0) this.constraintPadding = 0;
 		var me = this;
@@ -617,7 +692,6 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 			'</defs>' +
 			'<rect width="100%" height="100%" fill="url(#grid)" />' +
 			'</svg>');
-
 
 		this.bgLayer.append(this.gridLayer);
 		this.canvasLayer = $('<div style="width:100%;height:100%;"></div>');
@@ -671,9 +745,16 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 					}
 				}
 
-				me.views.filter(function(view) {
-					view.fireEvent('keydown', event);
-				});
+				me.fireEvent('keydown', event);
+
+				//keyup only fires where the view is selected but not editing!
+				if (me.selModel) {
+					me.selModel.getSelections().filter(function(view) {
+						if (view.editing) return;
+						view.fireEvent('keydown', event);
+					});
+				}
+
 			}
 		};
 		$(document).on('keydown', keydownLis);
@@ -695,9 +776,16 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 					}
 				}
 
-				me.views.filter(function(view) {
-					view.fireEvent('keyup', event);
-				});
+				me.fireEvent('keyup', event);
+
+				//keyup only fires where the view is selected but not editing!
+				if (me.selModel) {
+					me.selModel.getSelections().filter(function(view) {
+						if (view.editing) return;
+						view.fireEvent('keyup', event);
+					});
+				}
+
 			}
 		};
 		document.addEventListener('keyup', keyupLis);
@@ -739,6 +827,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	},
 	restoreCanvasByDescription : function(desc) {
 		if (!desc) return;
+		this.removeAllViews();
 		if (Ext.isObject(desc.canvas)) {
 			if (this.rendered) {
 				this.bgLayer.css('background-color', desc.canvas.bgColor);
@@ -756,18 +845,23 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	},
 	restoreViewsByDescriptions : function(views) {
 		if (!Ext.isArray(views)) return;
-		//order by zindex
-		views.sort(function(o1, o2) {return o1.zIndex > o2.zIndex});
+		//order by zindex if has zIndex?
+		views.sort(function(o1, o2) {
+			if (isNaN(o1.zIndex == null) || isNaN(o2.zIndex)) return 1;
+			return o1.zIndex - o2.zIndex;
+		});
 		var me = this;
+		var restoredViews = [];
 		views.filter(function(desc) {
 			if (!desc.hasOwnProperty('typeName')) return;
 
 			me.preProcessRestoreData(desc);
-			me.addSubView(Ext.create(desc.typeName, desc));
+			var v = me.addSubView(Ext.create(desc.typeName, desc));
+			v ? restoredViews.push(v) : null;
 		});
 
 		function allViewsByDescRendered() {
-			me.views.filter(function(view) {
+			restoredViews.filter(function(view) {
 				view.afterRestoreByDescription(me);
 			});
 		}
@@ -779,6 +873,8 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 				allViewsByDescRendered();
 			});
 		}
+
+		return restoredViews;
 	},
 	addSubView : function(view) {
 		view = Ext.widget(view);
@@ -847,10 +943,118 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	},
 	destroy : function() {
 		this.attributesInspectorPanel ? this.attributesInspectorPanel.destroy() : null;
+		this.shortcutController ? this.shortcutController.destroy() : null;
 		this.removeAllViews();
 		this.selModel ? this.selModel.destroy() : null;
 
 		this.callParent(arguments);
+	}
+});
+
+//===========================================shortcut controller============================
+//provider base shortcuts like cut paste copy
+Ext.define('GraphicDesigner.ShortcutController', {
+	extend : 'Ext.Component',
+	xtype : 'gdshortcutcontroller',
+	//each element in shortcuts should b in format like:
+	//{'ctrl+p' : function(canvasPanel) {...}} {'l' : func...} {'ctrl+alt+shift+s': func...}
+	//remember:1.ctrl 2.alt 3.shift 4.charcter
+	shortcutMap : {},
+	build : function() {
+		var scs = {
+			'ctrl+C' : function(cp) {
+				if (!cp.selModel || !cp.clipboard) return;
+
+				var ccData = [];
+				cp.selModel.getSelections().filter(function(v) {
+					ccData.push(v.getGraphicDescription());
+				});
+				if (ccData.length == 0) return;
+
+				cp.clipboard.ccData = ccData;
+				cp.clipboard.command = 'copy';
+				cp.fireEvent('copy');
+			},
+			'ctrl+V' : function(cp) {
+				if (!cp.selModel || !cp.clipboard || !cp.clipboard.ccData) return;
+
+				if (cp.clipboard.command == 'cut') {
+					//do cut
+					var arr = [];
+					cp.clipboard.ccData.filter(function(desc) {
+						arr.push(Ext.clone(desc));
+					});
+
+					var views = cp.restoreViewsByDescriptions(arr);
+					cp.selModel.clearSelection();
+					cp.selModel.select(views);
+					cp.fireEvent('cutpaste', views);
+
+					cp.clipboard.command = 'copy';
+				} else {
+					//do copy!
+					var arr = [];
+					cp.clipboard.ccData.filter(function(desc) {
+						//add each of copy view data' position to x-20,y-20
+						delete desc.viewId;
+						delete desc.zIndex;
+
+						desc.frame.x += 20;
+						desc.frame.y += 20;
+						var newDesc = Ext.clone(desc);
+						arr.push(newDesc);
+					});
+					//TODO translate linkers...
+
+					var views = cp.restoreViewsByDescriptions(arr);
+					cp.selModel.clearSelection();
+					cp.selModel.select(views);
+					cp.fireEvent('copypaste', views);
+				}
+
+			},
+			'ctrl+X' : function(cp) {
+				if (!cp.selModel || !cp.clipboard) return;
+
+				var ccData = [];
+				cp.selModel.getSelections().filter(function(v) {
+					ccData.push(v.getGraphicDescription());
+				});
+				cp.selModel.getSelections().filter(function(v) { v.destroy();});
+
+				if (ccData.length == 0) return;
+
+				cp.clipboard.ccData = ccData;
+				cp.clipboard.command = 'cut';
+				cp.fireEvent('cut');
+			}
+		};
+		scs = Ext.applyIf(scs, this.shortcutMap);
+
+		this.owner.on('keydown', function(e) {
+			var keyarr = [];
+			if (e.ctrlKey) keyarr.push('ctrl');
+			if (e.altKey) keyarr.push('alt');
+			if (e.shiftKey) keyarr.push('shift');
+
+			keyarr.push(String.fromCharCode(e.keyCode));
+
+			var func = scs[keyarr.join('+')];
+			func ? func(this) : null;
+		});
+	},
+	destroy : function() {
+		this.callParent();
+	}
+});
+
+Ext.define('GraphicDesigner.ClipBoard', {
+	extend : 'Ext.Component',
+	xtype : 'gdclipboard',
+	build : function() {
+	},
+	destroy : function() {
+		this.callParent();
 	}
 });
 
@@ -878,6 +1082,7 @@ Ext.define('GraphicDesigner.View', {
 	keyDelegate : {xtype : 'gdkeydelegate'},
 	dockDelegate : {xtype : 'gddockdelegate'},
 	frameTipDelegate : {xtype : 'gdframetipdelegate'},
+	contextmenuDelegate : {xtype : 'gdcontextmenudelegate'},
 	inspectorDelegate : {xtype : 'gdinspectordelegate'},
 	getCustomDescription : Ext.emptyFn,
 	restoreCustomDescription : Ext.emptyFn,
@@ -997,7 +1202,7 @@ Ext.define('GraphicDesigner.View', {
 		var o = Ext.apply({
 			typeName : Ext.getClassName(this),
 			viewId : this.viewId,
-			frame : this.frame,
+			frame : Ext.clone(this.frame),
 			minW : this.minW,
 			minH : this.minH,
 			text : this.labelDelegate ? this.labelDelegate.text : '',
@@ -1039,6 +1244,11 @@ Ext.define('GraphicDesigner.View', {
 			me.frame = me.set.getBBox();
 			me.fireEvent('dragmoving', dx, dy, x, y, e);
 		}, function(x, y ,e) {
+			if (e.button == 2) {
+				me.ownerCt.fireEvent('viewclicked', me);
+				me.fireEvent('contextmenu', x, y, e);
+				return;
+			}
 			me.fireEvent('dragstart', x, y, e);
 			me.ownerCt.fireEvent('viewclicked', me);
 		}, function(e) {
@@ -1087,6 +1297,10 @@ Ext.define('GraphicDesigner.View', {
 			this.frameTipDelegate = Ext.widget(this.frameTipDelegate);
 			this.frameTipDelegate.wireView(this);
 		}
+		if (this.contextmenuDelegate) {
+			this.contextmenuDelegate = Ext.widget(this.contextmenuDelegate);
+			this.contextmenuDelegate.wireView(this);
+		}
 		if (this.inspectorDelegate) {
 			this.inspectorDelegate = Ext.widget(this.inspectorDelegate);
 			this.inspectorDelegate.wireView(this);
@@ -1126,6 +1340,7 @@ Ext.define('GraphicDesigner.View', {
 			this.keyDelegate ? this.keyDelegate.disableListeners() : null;
 			this.dockDelegates ? this.dockDelegates.disableListeners() : null;
 			this.frameTipDelegate ? this.dockDelegates.disableListeners() : null;
+			this.contextmenuDelegate ? this.contextmenuDelegate.disableListeners() : null;
 			this.inspectorDelegate ? this.inspectorDelegate.disableListeners() : null;
 			this.otherDelegates.filter(function(d) {d.disableListeners();});
 		} else {
@@ -1137,6 +1352,7 @@ Ext.define('GraphicDesigner.View', {
 			this.keyDelegate ? this.keyDelegate.enableListeners() : null;
 			this.dockDelegates ? this.dockDelegates.enableListeners() : null;
 			this.frameTipDelegate ? this.dockDelegates.enableListeners() : null;
+			this.contextmenuDelegate ? this.contextmenuDelegate.enableListeners() : null;
 			this.inspectorDelegate ? this.inspectorDelegate.enableListeners() : null;
 			this.otherDelegates.filter(function(d) {d.enableListeners();});
 		}
@@ -1153,6 +1369,7 @@ Ext.define('GraphicDesigner.View', {
 		this.linkDelegate ? this.linkDelegate.destroy() : null;
 		this.keyDelegate ? this.keyDelegate.destroy() : null;
 		this.dockDelegates ? this.dockDelegates.destroy() : null;
+		this.contextmenuDelegate ? this.contextmenuDelegate.destroy() : null;
 		this.inspectorDelegate ? this.inspectorDelegate.destroy() : null;
 		Ext.each(this.otherDelegates, function(d) {d.destroy();});
 
@@ -1673,9 +1890,11 @@ Ext.define('GraphicDesigner.DragDelegate', {
 		var startFrame;
 		return {
 			dragstart : function(x, y, e) {
+				if (e.button == 2) return;
 				startFrame = me.view.frame;
 			},
 			dragmoving : function(dx, dy, x, y, e) {
+				if (!startFrame) return;
 				me.view.layoutInRect({
 					x : startFrame.x + dx,
 					y : startFrame.y + dy,
@@ -1702,10 +1921,14 @@ Ext.define('GraphicDesigner.KeyDelegate', {
 			me.view.fireEvent('keymoveend');
 		});
 		return {
-			keydown : function() {
-				if (!this.selected || this.editing) return;
+			keydown : function(e) {
+				if (this.editing) {
+					e.preventDefault();
+					e.stopPropagation();
+					return;
+				}
 
-				if (me.allowDelete && event.keyCode == 8) {
+				if (me.allowDelete && (event.keyCode == 8 || event.keyCode == 46)) {
 					this.destroy();
 					return;
 				}
@@ -2617,6 +2840,29 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 	}
 });
 
+Ext.define('GraphicDesigner.ContextMenuDelegate', {
+	extend : 'GraphicDesigner.ViewDelegate',
+	xtype : 'gdcontextmenudelegate'//,TODO
+	//getEventListeners : function() {
+	//	var me = this;
+	//	return {
+	//		contextmenu : function(x, y, e) {
+	//			e.preventDefault();
+	//			Ext.menu.Manager.get(me.buildMenu(this)).showAt([x, y]);
+	//			return false;
+	//		}
+	//	};
+	//},
+	//buildMenu : function(view) {
+	//	return [{
+	//		text : 'hahaha',
+	//		handler : function() {
+	//			alert(view.viewId);
+	//		}
+	//	}];
+	//}
+});
+
 Ext.define('GraphicDesigner.LabelDelegate', {
 	extend : 'GraphicDesigner.ViewDelegate',
 	xtype : 'gdlabeldelegate',
@@ -2645,6 +2891,11 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 			}).drag(function(dx, dy, x, y, e) {
 				me.view.fireEvent('dragmoving', dx, dy, x, y, e);
 			}, function(x, y ,e) {
+				if (e.button == 2) {
+					me.view.ownerCt.fireEvent('viewclicked', me.view);
+					me.view.fireEvent('contextmenu', x, y, e);
+					return;
+				}
 				e.stopPropagation();
 				me.view.fireEvent('dragstart', x, y, e);
 				me.view.ownerCt.fireEvent('viewclicked', me.view);
@@ -2659,8 +2910,6 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		this.layoutTextElement();
 		this.setText(this.text);
 
-		//this.view.set.push(this.textElement);
-
 		this.textHolder = $('<input type="text" />').hide();
 		$(this.view.set.paper.canvas).after(this.textHolder);
 		this.textHolder.css({
@@ -2672,6 +2921,11 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		}).blur(function() {
 			me.endEdit();
 		}).keydown(function(e) {
+			e.stopPropagation();
+			if (e.keyCode == 27) {
+				me.cancelEdit();
+				return;
+			}
 			if (e.keyCode == 13 || e.keyCode == 9) me.endEdit();
 			if (e.keyCode == 9) me.tabNext();
 		});
@@ -2707,8 +2961,12 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 			deselected : function() {
 				me.endEdit();
 			},
-			keyup : function(e) {
-				if (!this.selected || this.editing) return;
+			keydown : function(e) {
+				if (this.editing) {
+					e.preventDefault();
+					e.stopPropagation();
+					return;
+				}
 
 				if (me.editable && e.keyCode == 13) {
 					me.startEdit();
@@ -2745,6 +3003,9 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 			y : rect.y + rect.height / 2,
 			transform : this.getTransformStr()
 		});
+	},
+	cancelEdit : function() {
+		this.textHolder.val(this.text).blur();
 	},
 	startEdit : function() {
 		if (!this.editable) return;
@@ -2830,7 +3091,11 @@ Ext.define('GraphicDesigner.MultilineLabelDelegate', {
 		}).blur(function() {
 			me.endEdit();
 		}).keydown(function(e) {
-			if (e.keyCode == 13 && e.shiftKey) me.endEdit();
+			if (e.keyCode == 27) {
+				me.cancelEdit();
+				return;
+			}
+			if ((e.keyCode == 13 && e.shiftKey) || e.keyCode == 9) me.endEdit();
 			if (e.keyCode == 9) me.tabNext();
 		});
 
@@ -3303,7 +3568,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 				frame.x2 = frame.x + frame.width;
 				frame.y2 = frame.y + frame.height;
 
-				if (Math.abs(frame.x + frame.x + frame.width - cp.paperWidth) <= 10) {
+				if (Math.abs(frame.x + frame.x + frame.width - cp.paperWidth) <= 4) {
 					cp.drawDocker({
 						spec : 'x',
 						value : cp.paperWidth / 2
@@ -3336,7 +3601,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 						var value = frame.x + frame.width / 2;
 						Ext.each(v.dockDelegate.xCenterDockers, function(docker) {
 							var targetValue = docker.getValue();
-							if (Math.abs(targetValue - value) <= 5) {
+							if (Math.abs(targetValue - value) <= 2) {
 								found = true;
 								cp.drawDocker({
 									spec : docker.spec,
@@ -3371,7 +3636,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 								value = frame.x2;
 							}
 							var targetValue = docker.getValue();
-							if (Math.abs(targetValue - value) <= 5) {
+							if (Math.abs(targetValue - value) <= 2) {
 								found = true;
 								cp.drawDocker({
 									spec : docker.spec,
@@ -3399,7 +3664,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 				}
 
 				//y dock
-				if (Math.abs(frame.y + frame.y + frame.height - cp.paperHeight) <= 10) {
+				if (Math.abs(frame.y + frame.y + frame.height - cp.paperHeight) <= 4) {
 					cp.drawDocker({
 						spec : 'y',
 						value : cp.paperHeight / 2
@@ -3432,7 +3697,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 						var value = frame.y + frame.height / 2;
 						Ext.each(v.dockDelegate.yCenterDockers, function(docker) {
 							var targetValue = docker.getValue();
-							if (Math.abs(targetValue - value) <= 5) {
+							if (Math.abs(targetValue - value) <= 2) {
 								found = true;
 								cp.drawDocker({
 									spec : docker.spec,
@@ -3467,7 +3732,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 								value = frame.y2;
 							}
 							var targetValue = docker.getValue();
-							if (Math.abs(targetValue - value) <= 5) {
+							if (Math.abs(targetValue - value) <= 2) {
 								found = true;
 								cp.drawDocker({
 									spec : docker.spec,
@@ -3508,7 +3773,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 				var docked = false;
 				var thisview = this;
 
-				if (Math.abs(frame.x + frame.x + frame.width - cp.paperWidth) <= 10) {
+				if (Math.abs(frame.x + frame.x + frame.width - cp.paperWidth) <= 4) {
 					//dock |
 					cp.drawDocker({
 						spec : 'x',
@@ -3531,7 +3796,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 							var toValue = toDocker.getValue();
 							Ext.each(me.xCenterDockers, function(docker) {
 								var value = docker.getValue();
-								if (Math.abs(value - toValue) <= 5) {
+								if (Math.abs(value - toValue) <= 2) {
 									found = true;
 									cp.drawDocker({
 										spec : toDocker.spec,
@@ -3549,7 +3814,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 								var toValue = toDocker.getValue();
 								Ext.each(me.xBoundDockers, function(docker) {
 									var value = docker.getValue();
-									if (Math.abs(value - toValue) <= 5) {
+									if (Math.abs(value - toValue) <= 2) {
 										found = true;
 										cp.drawDocker({
 											spec : toDocker.spec,
@@ -3572,7 +3837,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 					});
 				}
 
-				if (Math.abs(frame.y + frame.y + frame.height - cp.paperHeight) <= 10) {
+				if (Math.abs(frame.y + frame.y + frame.height - cp.paperHeight) <= 4) {
 					//dock -
 					cp.drawDocker({
 						spec : 'y',
@@ -3594,7 +3859,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 							var toValue = toDocker.getValue();
 							Ext.each(me.yCenterDockers, function(docker) {
 								var value = docker.getValue();
-								if (Math.abs(value - toValue) <= 5) {
+								if (Math.abs(value - toValue) <= 2) {
 									found = true;
 									cp.drawDocker({
 										spec : toDocker.spec,
@@ -3612,7 +3877,7 @@ Ext.define('GraphicDesigner.DockDelegate', {
 								var toValue = toDocker.getValue();
 								Ext.each(me.yBoundDockers, function(docker) {
 									var value = docker.getValue();
-									if (Math.abs(value - toValue) <= 5) {
+									if (Math.abs(value - toValue) <= 2) {
 										found = true;
 										cp.drawDocker({
 											spec : toDocker.spec,
@@ -3771,6 +4036,7 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			me.clearSelection();
 		});
 		canvasPanel.on('viewclicked', function(view) {
+			canvasPanel.fireLastCanvasClick();
 			me.clearPathSels();
 			canvasPanel.views.filter(function(v) {
 				if (v != view) {
@@ -3787,6 +4053,24 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			});
 		});
 
+	},
+	select : function(views) {
+		this.ownerCt.fireLastCanvasClick();
+		views.filter(function(v) {
+			if (!v.selected) {
+				v.selected = true;
+				v.fireEvent('selected');
+			}
+		});
+	},
+	deselect : function(views) {
+		this.ownerCt.fireLastCanvasClick();
+		views.filter(function(v) {
+			if (v.selected) {
+				v.selected = false;
+				v.fireEvent('deselected');
+			}
+		});
 	},
 	clearSelection : function() {
 		this.clearPathSels();
@@ -4136,6 +4420,7 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 		width : 30,
 		height : 30
 	},
+	infoPanelVisible : false,
 	inspectors : [{
 	//	xtype : 'gdinspector'
 	//}, {
@@ -4151,7 +4436,7 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 		});
 
 	},
-	updateByCanvas : function() {},//...TODO
+	updateByCanvas : function() {},
 	onShow : function() {
 		this.query('button[pressed=true]').filter(function(b) {
 			b.infoPanel ? b.fireEvent('toggle', b, true) : null;
@@ -4192,7 +4477,7 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 
 		this.callParent();
 
-		if (this.getComponent(0)) {
+		if (this.infoPanelVisible && this.getComponent(0)) {
 			this.getComponent(0).toggle(true);
 		}
 	}
@@ -4329,20 +4614,26 @@ Ext.define('GraphicDesigner.CanvasInfoInspector', {
 		this.callParent();
 	},
 	update : function() {
-		try {
-			var svg = $(this.ownerCt.owner.getCanvas());
-			var img = $('<image src="' + this.ownerCt.owner.getDataUrl() + '" />');
-			img.width(svg.width()).height(svg.height());
-			$(this.el.dom).append(img);
+		var me = this;
+		if (!this.task) this.task = new Ext.util.DelayedTask(function() {
+			try {
+				var svg = $(me.ownerCt.owner.getCanvas());
+				var img = $('<image src="' + me.ownerCt.owner.getDataUrl() + '" />');
+				img.width(svg.width()).height(svg.height());
+				$(me.el.dom).append(img);
 
-			var cvs = $(this.infoPanel.el.dom).find('canvas');
-			cvs.attr('width', svg.width()).attr('height', svg.height());
+				var cvs = $(me.infoPanel.el.dom).find('canvas');
+				cvs.attr('width', svg.width()).attr('height', svg.height());
 
-			var ctx = cvs[0].getContext('2d');
-			ctx.drawImage(img[0], 0, 0, svg.width(), svg.height());
+				var ctx = cvs[0].getContext('2d');
+				ctx.drawImage(img[0], 0, 0, svg.width(), svg.height());
 
-			img.remove();
-		} catch(e) {}
+				img.remove();
+			} catch(e) {}
+		});
+
+		this.task.cancel();
+		this.task.delay(100);
 	}
 });
 
