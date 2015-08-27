@@ -18,22 +18,28 @@ it's a world of delegates!
 
 let's take a look at some screenshots & features!
 
-### base
+base
+---------
 ![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/base.png)
 
-### form design->form render
+form design->form render
+---------
 ![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/form-translation.png)
 
-### toolbox
+toolbox
+---------
 ![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/toolbox.png)
 
-### preview
+preview
+---------
 ![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/preview.png)
 
-### autodock
+autodock
+---------
 ![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/autodock.png)
 
-### dragdrop
+dragdrop
+---------
 ![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/drag-drop.png)
 
 but,there're still some known issues on it,and it's now at version 0.0.1-beta.
@@ -42,5 +48,7 @@ you can watch this project, any suggestion is appreciated!
 ### known issue:
 > when 2 views get closer and they have at least 1 line linked,the line may disappear
   this is caused by the a* algrithm,im now workin on it!
+>
 > when cut/copy any views that have any linkers,linkers will disappear
+>
 > multi selection is not supported right now
