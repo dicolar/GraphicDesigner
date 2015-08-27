@@ -4024,7 +4024,8 @@ Ext.define('GraphicDesigner.SelectionModel', {
 		var me = this;
 		//add events...
 
-		this.documentClickListener = function() {
+		this.documentClickListener = function(e) {
+			if ($(e.target).parents('.x-boundlist ').length || $(e.target).parents('.x-menu').length) return;
 			if (!GraphicDesigner.suspendClickEvent) {
 				canvasPanel.fireEvent('canvasclicked');
 			}
@@ -4038,19 +4039,27 @@ Ext.define('GraphicDesigner.SelectionModel', {
 		canvasPanel.on('viewclicked', function(view) {
 			canvasPanel.fireLastCanvasClick();
 			me.clearPathSels();
-			canvasPanel.views.filter(function(v) {
-				if (v != view) {
-					if (v.selected) {
-						v.selected = false;
-						v.fireEvent('deselected');
-					}
-				} else {
-					if (!v.selected) {
-						v.selected = true;
-						v.fireEvent('selected');
-					}
+
+			var toDesels = [];
+			var toSels = [view];
+			me.getSelections().filter(function(v) {
+				if (view == v) return;
+				toDesels.push(v);
+			});
+
+			//deselect others...
+			toDesels.filter(function(v) {
+				v.selected = false;
+				v.fireEvent('deselected');
+			});
+
+			toSels.filter(function(v) {
+				if (!v.selected) {
+					v.selected = true;
+					v.fireEvent('selected');
 				}
 			});
+
 		});
 
 	},
