@@ -15,8 +15,43 @@
 	background: #b5b5b5;
 }
 
+.gd-canvas-readonly {
+	text-align: center;
+	padding : 10px;
+}
+
 .gd-canvas-bg {
 	background-image: url(images/canvas_bg.jpg);
+}
+
+.gd-canvas-readonly > * > .gd-canvas-container {
+	position : relative!important;
+	background-color: transparent!important;
+	box-shadow: 0px 0px 2px!important;
+	-webkit-border-radius: 2px;
+	-moz-border-radius: 2px;
+	border-radius: 2px;
+	/*border: 1px #DADADA solid;*/
+}
+
+
+.gd-canvas-readonly > * > .gd-canvas-container > .gd-bg-layer {
+	position : static!important;
+}
+
+.gd-canvas-readonly > * > .gd-canvas-container > .gd-bg-layer > .gd-grid-layer {
+	position : static!important;
+}
+
+.gd-canvas-bg-readonly {
+	background-image: none!important;
+}
+
+.gd-selmodel-selector {
+	background-color: #499ECE;
+	opacity: .3;
+	border : 1px #074BAD solid;
+	position : absolute;
 }
 
 div.gd-splitter-h {
@@ -29,6 +64,7 @@ div.gd-splitter-h {
 	position: absolute;
 	background-color: #F2F2F2;
 	box-shadow: 0px 0px 15px;
+	text-align : left;
 }
 
 .gd-grid-layer, .gd-readonly-mask {
