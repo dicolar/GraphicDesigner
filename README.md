@@ -45,13 +45,14 @@ dragdrop
 ---------
 ![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/drag-drop.png)
 
-but,there're still some known issues on it,and it's now at version 0.0.1-beta.
+but,there're still some known issues on it,and it's now at version 0.1.0-beta.
 you can watch this project, any suggestion is appreciated!
 
-### known issue:
-> 1. when 2 views get closer and they have at least 1 line linked,the line may disappear
-  this is caused by the a* algrithm,im now workin on it!
+Update log
+-----------
+>2015-09-05
 >
-> 2. when cut/copy any views that have any linkers,linkers will disappear
->
-> 3. multi selection is not supported right now
+>cheers! linker algrithm is completed!
+>multi selection model is now available
+
+i will attach develop document soon...

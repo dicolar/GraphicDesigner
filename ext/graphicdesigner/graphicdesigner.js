@@ -378,8 +378,11 @@ Ext.override(Ext.layout.container.Auto, {
 	}
 });
 
-Array.prototype.gdmove = function (from, to) {
+Array.prototype.gdmove = function(from, to) {
 	this.splice(to, 0, this.splice(from, 1)[0]);
+};
+Array.prototype.last = function() {
+	return this[this.length - 1];
 };
 
 //===========================GraphicDesigner definition=============================
@@ -468,6 +471,32 @@ GraphicDesigner.getCenter = function(frame) {
 		x : frame.x + frame.width / 2,
 		y : frame.y + frame.height / 2
 	};
+}
+
+GraphicDesigner.isLineCrossBox = function(start, end, box, excludeBound) {
+
+	if (this.isPointInBox(start.x, start.y, box, excludeBound) || this.isPointInBox(end.x, end.y, box, excludeBound)) return true;
+
+	var xarr = [start.x, end.x].sort();
+	var yarr = [start.y, end.y].sort();
+	if (excludeBound) {
+		if (start.x == end.x && start.x > box.x && start.x < box.x2) {
+			return yarr[0] <= box.y && yarr[1] >= box.y2;
+		}
+		if (start.y == end.y && start.y > box.y && start.y < box.y2) {
+			return xarr[0] <= box.x && xarr[1] >= box.x2;
+		}
+	} else {
+		if (start.x == end.x && start.x >= box.x && start.x <= box.x2) {
+			return yarr[0] < box.y && yarr[1] > box.y2;
+		}
+		if (start.y == end.y && start.y >= box.y && start.y <= box.y2) {
+			return xarr[0] < box.x && xarr[1] > box.x2;
+		}
+	}
+
+	return false;
+
 }
 
 GraphicDesigner.translateHexColorFromRgb = function(rgb) {
@@ -756,12 +785,12 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 					}
 				}
 
-				me.fireEvent('keydown', event);
+				if (!GraphicDesigner.viewEditing) me.fireEvent('keydown', event);
 
 				//keyup only fires where the view is selected but not editing!
 				if (me.selModel) {
 					me.selModel.getSelections().filter(function(view) {
-						if (view.editing) return;
+						if (view.editing || !view.fireEvent) return;
 						view.fireEvent('keydown', event);
 					});
 				}
@@ -787,12 +816,12 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 					}
 				}
 
-				me.fireEvent('keyup', event);
+				if (!GraphicDesigner.viewEditing) me.fireEvent('keyup', event);
 
 				//keyup only fires where the view is selected but not editing!
 				if (me.selModel) {
 					me.selModel.getSelections().filter(function(view) {
-						if (view.editing) return;
+						if (view.editing || !view.fireEvent) return;
 						view.fireEvent('keyup', event);
 					});
 				}
@@ -1013,20 +1042,22 @@ Ext.define('GraphicDesigner.ShortcutController', {
 						desc.viewId = Raphael.createUUID();
 					});
 					cp.clipboard.ccData.filter(function(desc) {
-						desc.linkers = desc.linkers.filter(function(linker) {
-							if (linker.target && linker.target.viewId) {
-								//find orig view
-								var origView = origViewMap[linker.target.viewId];
-								if (!origView) {
-									return false;
+						if (desc.linkers) {
+							desc.linkers = desc.linkers.filter(function(linker) {
+								if (linker.target && linker.target.viewId) {
+									//find orig view
+									var origView = origViewMap[linker.target.viewId];
+									if (!origView) {
+										return false;
+									}
+
+									linker.target.viewId = origView.viewId;
+									return true;
 								}
 
-								linker.target.viewId = origView.viewId;
 								return true;
-							}
-
-							return true;
-						});
+							});
+						}
 					});
 
 					cp.clipboard.ccData.filter(function(desc) {
@@ -2102,8 +2133,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		target.x = Math.round(target.x);
 		target.y = Math.round(target.y);
 
-		//TODO TEST
-		var path = this.calculateByAStarEx(src, target);
+		var path = this.getPathThroughST(src, target);
 		//bind selection behavior...
 		var me = this;
 		path.click(function(e) {
@@ -2344,772 +2374,1062 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 
 		return region;
 	},
-	calculateByAStar : function(src, target) {
-		var startTime = new Date().getTime();
-		//indicate a proper step:100 50 25 10 5 2 1
-
-		if (src.x == target.x && src.y == target.y) {
-			return;
-		}
-
-		var region = this.getValidRegion(src, target);
-		//xxxxxx
-		region.draw();
-		//x-----------
-
-		var step = Math.min(Math.abs(target.x - src.x), Math.abs(target.y - src.y));
-
-		var srcBox, srcOutBox;
-		if (src.linkend && src.linkend.data('ownerCt')) {
-			srcBox = src.linkend.data('ownerCt').view.set.getBBox();
-			step = Math.min(step, Math.round(srcBox.width), Math.round(srcBox.height));
-			srcOutBox = {
-				x : Math.round(srcBox.x) - 30,
-				y : Math.round(srcBox.y) - 30,
-				width : Math.round(srcBox.width) + 60,
-				height : Math.round(srcBox.height) + 60
-			};
-		}
-		var targetBox, targetOutBox;
-		if (target.linkend && target.linkend.data('ownerCt')) {
-			targetBox = target.linkend.data('ownerCt').view.set.getBBox();
-			step = Math.min(step, Math.round(targetBox.width), Math.round(targetBox.height));
-			targetOutBox = {
-				x : Math.round(targetBox.x) - 30,
-				y : Math.round(targetBox.y) - 30,
-				width : Math.round(targetBox.width) + 60,
-				height : Math.round(targetBox.height) + 60
-			};
-		}
-
-		step = Math.min(19, step);
-		//step = 1;
-		console.log('step', step);
-		//step = 10;
-
-		//point:x,y rect:x,y,width,height
-		function isNodeInBox(node, box) {
-			if (box == null) return false;
-			return node.x > box.x && node.x < box.x + box.width && node.y > box.y && node.y < box.y + box.height
-		}
-
-		//node:x y parent f g h key nextNode(dx, y) refrehs()
-		function getNode(x, y, parent) {
-			return {
-				key : x + ',' + y,
-				x : x,
-				y : y,
-				parent : parent,
-				nextNode : function(dx, dy) {
-					return getNode(this.x + dx, this.y + dy, this);
-				},
-				refresh : function() {
-					this.g = this.parent ? (this.parent.g + Math.abs(this.parent.x - this.x) + Math.abs(this.parent.y - this.y)) : 0;
-					this.h = Math.abs(target.y - this.y) + Math.abs(target.x - this.x);
-
-					//add a factor
-					var factor = 0;
-					//if (this.parent && this.parent.parent) {
-					//	var dx = this.parent.x - this.parent.parent.x;
-					//	if (dx != 0 && this.y - this.parent.y != 0) {
-					//		//im now moving horizontally
-					//		factor += .1;
-					//	}
-					//
-					//	var dy = this.parent.y - this.parent.parent.y;
-					//	if (dy != 0 && this.x - this.parent.x != 0) {
-					//		//im now moving vertically
-					//		factor += .1;
-					//	}
-					//}
-
-					this.f = this.g + this.h + factor;
-					return this;
-				}
-			}.refresh();
-		}
-
-		var closeMap = {};
-
-		var openList = [];
-		openList.openMap = {};
-		openList.sortByMinF = function() {
-			return this.sort(function(o1, o2) {
-				return o1.f - o2.f;
-			});
-		}
-
-		function isNodeInvalid(node) {
-			//|-box
-			if (isNodeInBox(target, srcBox)) return false;
-
-			//box-outbox
-			if (isNodeInBox(target, srcOutBox)) {//TODO
-				if (isNodeInBox(node, srcBox)) return true;
-
-				if (src.dir == 't') {
-					//if target in zone A(includes box bound)
-					if (target.y <= src.y) {
-						if (node.x != src.x) {
-							if (target.y != src.y && node.y == src.y) return true;
-						}
-						return false;
-					}
-
-					//if target in zone B(includes box bounds)
-					if ((target.x <= srcBox.x || target.x >= srcBox.x + srcBox.width) && (target.y >= src.y && target.y < srcBox.y + srcBox.height + 30)) {
-						//exclude zone a's nodes
-						//	  left-a										 right-a
-						if (( (node.x > srcBox.x - 30 && node.x < src.x) || (node.x > src.x && node.x < srcBox.x + srcBox.width + 30) )
-								//topbound-top
-							&& (node.y <= src.y && node.y > src.y - 30)) return true;
-
-						//	left-b												//right-b
-						if (( (node.x > srcBox.x - 30 && node.x < srcBox.x) || (node.x > srcBox.x + srcBox.width && node.x < srcBox.x + srcBox.width + 30) )
-								//above target.y
-							&& (node.y < target.y && node.y >= src.y)) return true;
-
-						return false;
-					}
-
-					//if target is zone C(include bound)
-					if (target.y >= srcBox.y + srcBox.height) {
-						//exclude zone a's nodes
-						//	  left-a										 right-a
-						if (( (node.x > srcBox.x - 30 && node.x < src.x) || (node.x > src.x && node.x < srcBox.x + srcBox.width + 30) )
-								//topbound-top
-							&& (node.y <= src.y && node.y > src.y - 30)) return true;
-
-						//		left-b											right-b
-						if (( (node.x > srcBox.x - 30 && node.x < srcBox.x) || (node.x > srcBox.x + srcBox.width && node.x < srcBox.x + srcBox.width + 30) )
-								//above target.y
-							&& (node.y < src.y + srcBox.height + 30 && node.y >= src.y)) return true;
-
-						//		left-c									right-c
-						if ( ((node.x > srcBox.x && node.x < target.x) || (node.x > target.x && node.x < srcBox.x + srcBox.width))
-							&& node.y > src.y && node.y <= srcBox.y + srcBox.height + 30) return true;
-
-						return false;
-					}
-
-				}
-
-				if (src.dir == 'b') {
-					//if target in zone A(includes box bound)
-					if (target.y >= src.y) {
-						if (node.x != src.x) {
-							if (target.y != src.y && node.y == src.y) return true;
-						}
-						return false;
-					}
-
-					//if target in zone B(includes box bounds)
-					if ((target.x <= srcBox.x || target.x >= srcBox.x + srcBox.width) && (target.y <= src.y && target.y > srcBox.y - 30)) {
-						//exclude zone a's nodes
-						//	  left-a										 right-a
-						if (( (node.x > srcBox.x - 30 && node.x < src.x) || (node.x > src.x && node.x < srcBox.x + srcBox.width + 30) )
-								//topbound-top
-							&& (node.y >= src.y && node.y < src.y + 30)) return true;
-
-						//	left-b												//right-b
-						if (( (node.x > srcBox.x - 30 && node.x < srcBox.x) || (node.x > srcBox.x + srcBox.width && node.x < srcBox.x + srcBox.width + 30) )
-								//above target.y
-							&& (node.y > target.y && node.y <= src.y)) return true;
-
-						return false;
-					}
-
-					//if target is zone C(include bound)
-					if (target.y <= srcBox.y) {
-						//exclude zone a's nodes
-						//	  left-a										 right-a
-						if (( (node.x > srcBox.x - 30 && node.x < src.x) || (node.x > src.x && node.x < srcBox.x + srcBox.width + 30) )
-								//topbound-top
-							&& (node.y >= src.y && node.y < src.y + 30)) return true;
-
-						//		left-b											right-b
-						if (( (node.x > srcBox.x - 30 && node.x < srcBox.x) || (node.x > srcBox.x + srcBox.width && node.x < srcBox.x + srcBox.width + 30) )
-								//above target.y
-							&& (node.y > srcBox.x - 30 && node.y <= src.y)) return true;
-
-						//		left-c									right-c
-						if ( ((node.x > srcBox.x && node.x < target.x) || (node.x > target.x && node.x < srcBox.x + srcBox.width))
-							&& node.y < src.y && node.y >= srcBox.y - 30) return true;
-
-						return false;
-					}
-
-				}
-
-				if (src.dir == 'l') {
-					//if target in zone A(includes box bound)
-					if (target.x <= src.x) {
-						if (node.y != src.y) {
-							if (target.x != src.x && node.x == src.x) return true;
-						}
-						return false;
-					}
-
-					//if target in zone B(includes box bounds)
-					if ((target.y <= srcBox.y || target.y >= srcBox.y + srcBox.height) && (target.x >= src.x && target.x < srcBox.x + srcBox.width + 30)) {
-						//exclude zone a's nodes
-						//	  top-a										 	bottom-a
-						if (( (node.y < src.y && node.y > srcBox.y - 30) || (node.y > src.y && node.y < srcBox.y + srcBox.height + 30) )
-								//topbound-top
-							&& (node.x <= src.x && node.x > src.x - 30)) return true;
-
-						//	top-b												//bottom-b
-						if (( (node.y > srcBox.y - 30 && node.y < srcBox.y) || (node.y > srcBox.y + srcBox.height && node.y < srcBox.y + srcBox.height + 30) )
-								//above target.y
-							&& (node.x < target.x && node.x >= src.x)) return true;
-
-						return false;
-					}
-
-					//if target is zone C(include bound)
-					if (target.x <= src.x + srcBox.width + 30) {
-						//exclude zone a's nodes
-						//	  top-a										 	bottom-a
-						if (( (node.y < src.y && node.y > srcBox.y - 30) || (node.y > src.y && node.y < srcBox.y + srcBox.height + 30) )
-								//topbound-top
-							&& (node.x <= src.x && node.x > src.x - 30)) return true;
-
-						//	top-b												//bottom-b
-						if (( (node.y > srcBox.y - 30 && node.y < srcBox.y) || (node.y > srcBox.y + srcBox.height && node.y < srcBox.y + srcBox.height + 30) )
-								//above target.y
-							&& (node.x < src.x + srcBox.width + 30 && node.x >= src.x)) return true;
-
-						//		top-c										bottom-c
-						if ( ((node.y > srcBox.y && node.y < target.y) || (node.y > target.y && node.y < srcBox.y + srcBox.height))
-							&& node.x <= src.x + srcBox.width + 30 && node.x > src.x + srcBox.width) return true;
-
-						return false;
-					}
-
-				}
-
-				//TODO
-				if (src.dir == 'r') {
-					//if target in zone A(includes box bound)
-					if (target.x >= src.x) {
-						if (node.y != src.y) {
-							if (target.x != src.x && node.x == src.x) return true;
-						}
-						return false;
-					}
-
-					//if target in zone B(includes box bounds)
-					if ((target.y <= srcBox.y || target.y >= srcBox.y + srcBox.height) && (target.x <= src.x && target.x > srcBox.x - 30)) {
-						//exclude zone a's nodes
-						//	  top-a										 	bottom-a
-						if (( (node.y < src.y && node.y > srcBox.y - 30) || (node.y > src.y && node.y < srcBox.y + srcBox.height + 30) )
-								//topbound-top
-							&& (node.x >= src.x && node.x < src.x + 30)) return true;
-
-						//	top-b												//bottom-b
-						if (( (node.y > srcBox.y - 30 && node.y < srcBox.y) || (node.y > srcBox.y + srcBox.height && node.y < srcBox.y + srcBox.height + 30) )
-								//above target.y
-							&& (node.x > target.x && node.x <= src.x)) return true;
-
-						return false;
-					}
-
-					//if target is zone C(include bound)
-					if (target.x <= src.x) {
-						//exclude zone a's nodes
-						//	  top-a										 	bottom-a
-						if (( (node.y < src.y && node.y > srcBox.y - 30) || (node.y > src.y && node.y < srcBox.y + srcBox.height + 30) )
-								//topbound-top
-							&& (node.x >= src.x && node.x < src.x + 30)) return true;
-
-						//	top-b												//bottom-b
-						if (( (node.y > srcBox.y - 30 && node.y < srcBox.y) || (node.y > srcBox.y + srcBox.height && node.y < srcBox.y + srcBox.height + 30) )
-								//above target.y
-							&& (node.x > srcBox.x - 30 && node.x <= src.x)) return true;
-
-						//		top-c										bottom-c
-						if ( ((node.y > srcBox.y && node.y < target.y) || (node.y > target.y && node.y < srcBox.y + srcBox.height))
-							&& node.x <= srcBox.x && node.x > srcBox.x - 30) return true;
-
-						return false;
-					}
-
-				}
-
-				return false;
-
-			}
-
-			//outbox-|
-			if (isNodeInBox(node, srcOutBox)) {
-				//check if in outgoing stub
-
-				if (src.dir == 't' && node.x == src.x && node.y < srcBox.y) {
-					//⬆
-					return false;
-				}
-
-				if (src.dir == 'b' && node.x == src.x && node.y > src.y) {
-					//⬇
-					return false;
-				}
-
-				if (src.dir == 'r' && node.y == src.y && node.x > src.x) {
-					//➡
-					return false;
-				}
-
-				if (src.dir == 'l' && node.y == src.y && node.x < src.x) {
-					//⬅
-					return false;
-				}
-
-				return true;
-			}
-
-			if (!targetBox) {
-				return false;
-			}
-
-			//if has targetBox
-			if (target.dir == 't' && isNodeInBox(node, targetOutBox)) {
-				if (node.y >= target.y - 30 && node.y <= target.y && node.x == target.x) return false;
-				return true
-			}
-			if (target.dir == 'b' && isNodeInBox(node, targetOutBox)) {
-				if (node.y >= target.y && node.y <= target.y + 30 && node.x == target.x) return false;
-				return true
-			}
-			if (target.dir == 'l' && isNodeInBox(node, targetOutBox)) {
-				if (node.x >= target.x - 30 && node.x <= target.x && node.y == target.y) return false;
-				return true
-			}
-			if (target.dir == 'r' && isNodeInBox(node, targetOutBox)) {
-				if (node.x >= target.x && node.x <= target.x + 30 && node.y == target.y) return false;
-				return true
-			}
-
-			return false;
-		}
-
-		openList.add = function(node) {
-			if (closeMap.hasOwnProperty(node.key) || isNodeInvalid(node)) return this; //TODO (or is invalid)
-			if (this.openMap.hasOwnProperty(node.key)) {
-				//check g!
-				var tg = currentNode.g + Math.abs(node.x - currentNode.x) + Math.abs(node.y - currentNode.y);
-				//if (tg == node.g && node.h < currentNode.h) console.log('=', currentNode, node);
-				if (tg < node.g) {
-					//change node's parent 2 currentnode
-					node.parent = currentNode;
-					node.refresh();
-					this.sortByMinF();
-				}
-
-				return this;
-			}
-
-			this.openMap[node.key] = node;
-
-			var idx = this.length;
-			$.each(this, function(i, o) {
-				if (o.f > node.f) {
-					idx = i;return false;
-				}
-			});
-			this.splice(idx, 0, node);
-			return this;
-		}
-
-		var srcNode = getNode(src.x, src.y);
-		var currentNode = srcNode;
-		//put srcNode into closeList first!
-		closeMap[srcNode.key] = srcNode;
-
-		var i = 0;
-		var targetPathNode;
-		while (true) {
-			//put 4 nodes into openList
-			var xStep = Math.min(step, Math.abs(target.x - currentNode.x));
-			var yStep = Math.min(step, Math.abs(target.y - currentNode.y));
-
-			xStep = Math.max(1, xStep);
-			yStep = Math.max(1, yStep);
-
-			var nextNode;
-
-			if (src.dir == 't' || src.dir == 'b') {
-				nextNode = currentNode.nextNode(xStep, 0);//right
-				openList.add(nextNode);
-				nextNode = currentNode.nextNode(-xStep, 0);//left
-				openList.add(nextNode);
-
-				nextNode = currentNode.nextNode(0, yStep);//bottom
-				openList.add(nextNode);
-				nextNode = currentNode.nextNode(0, -yStep);//top
-				openList.add(nextNode);
+	linkPadding : 30,
+	mid : function(a, b) {
+		return Math.floor((a + b) / 2);
+	},
+	getTopSPoints : function(src, target, box) {
+		var PD = this.linkPadding;
+		var ps = [];
+		var dx = Math.abs(target.x - src.x);
+		var dy = Math.abs(target.y - src.y);
+
+		if (target.y < src.y) {
+			//		 ※
+			//----------------
+			//  |         |
+			if (dy >= dx) {
+				var midy = this.mid(target.y, src.y);
+				//↑
+				ps.push([src.x, midy], [target.x, midy]);
 			} else {
-				nextNode = currentNode.nextNode(0, yStep);//bottom
-				openList.add(nextNode);
-				nextNode = currentNode.nextNode(0, -yStep);//top
-				openList.add(nextNode);
-
-				nextNode = currentNode.nextNode(xStep, 0);//right
-				openList.add(nextNode);
-				nextNode = currentNode.nextNode(-xStep, 0);//left
-				openList.add(nextNode);
+				//→
+				ps.push([src.x, target.y]);
 			}
-
-			var minFNode = openList.shift();
-			if (minFNode == null) {
-				console.log('path not found!');
-				break;
-			}
-
-			if (minFNode.x == target.x && minFNode.y == target.y) {
-				//target found!
-				targetPathNode = minFNode;
-				break;
-			}
-
-			closeMap[minFNode.key] = minFNode;
-			//remove minfnode from openlist
-			delete openList.openMap[minFNode.key];
-			currentNode = minFNode;
-
-			i++;
-			if (i >= 10000) break;//warning!
+			return ps;
 		}
 
-		console.log((new Date().getTime() - startTime) + 'ms', i + '-times');
+		ps.push([src.x, src.y - PD]);
+		if (target.y >= src.y && target.y < box.y2 && (target.x <= box.x || target.x >= box.x2)) {
+			//
+			//=======================
+			// 	※  ||         ||  ※
+			//     ||		  ||
+			//-----------------------
 
-		//--------------1111111----------------------
-		//if (this.testset) this.testset.remove();
-		//var paper = this.view.set.paper;
-		//this.testset = paper.set();
-		//for (var key in closeMap) {
-		//	var n = closeMap[key];
-		//	this.testset.push(paper.circle(n.x, n.y, 2).attr('fill', 'green').attr('stroke', 'transparent'));
-		//}
-		//for (var key in openList.openMap) {
-		//	var n = openList.openMap[key];
-		//	this.testset.push(paper.circle(n.x, n.y, 2).attr('fill', 'red').attr('stroke', 'transparent'));
-		//}
-
-		//TODO
-
-		var nodes = [];
-		if (targetPathNode) {
-			var p = targetPathNode;
-			while (p) {
-				nodes.unshift(p);
-				p = p.parent;
-			}
-		}
-
-		var patharr = [];
-		this.reducePaths(nodes).filter(function(node) {
-			patharr.push('L', node.x, node.y);
-		});
-		if (patharr.length > 0) patharr[0] = 'M';
-
-		var lll = patharr.length;
-		var arrow = [];
-		if (lll >= 6) {
-			var lastNode = {
-				x : patharr[lll - 2],
-				y : patharr[lll - 1]
-			};
-			arrow.push('M', lastNode.x, lastNode.y);
-			var secLastNode = {
-				x : patharr[lll - 5],
-				y : patharr[lll - 4]
-			};
-			if (lastNode.x == secLastNode.x) {//tb
-				if (lastNode.y < secLastNode.y) {
-					//t
-					arrow.push('L', lastNode.x + 4, lastNode.y + 10, 'L', lastNode.x - 4, lastNode.y + 10, 'Z');
+			if (target.x > box.x - PD && target.x < box.x2 + PD) {
+				//   |※||......||※|
+				var midx = target.x <= box.x ? box.x - PD : box.x2 + PD;
+				ps.push([midx, ps.last()[1]]);
+				if (dy > dx) {//b
+					ps.push([midx, target.y - PD], [target.x, target.y - PD]);
 				} else {
-					//b
-					arrow.push('L', lastNode.x + 4, lastNode.y - 10, 'L', lastNode.x - 4, lastNode.y - 10, 'Z');
+					// l/r?
+					ps.push([midx, target.y]);
+				}
+			} else {
+				//  ※||x|......|x||※
+				if (dy > dx) {// b
+					ps.push([target.x, ps.last()[1]]);
+				} else {
+					var midx = target.x < box.x ? target.x + PD : target.x - PD;
+					ps.push([midx, ps.last()[1]], [midx, target.y]);
 				}
 			}
-
-			if (lastNode.y == secLastNode.y) {
-				if (lastNode.x < secLastNode.x) {
-					//l
-					arrow.push('L', lastNode.x + 10, lastNode.y + 4, 'L', lastNode.x + 10, lastNode.y - 4, 'Z');
-				} else {
-					//r
-					arrow.push('L', lastNode.x - 10, lastNode.y + 4, 'L', lastNode.x - 10, lastNode.y - 4, 'Z');
-				}
-			}
+			return ps;
 		}
 
-		var paper = this.view.set.paper;
-		var s = paper.set();
-		s.push(paper.path(patharr.join(',')).attr('stroke-width', 2).attr('cursor', 'hand')
-			.data('target', target).data('src', src));
-		s.push(paper.path(arrow.join(',')).attr('fill', 'black').attr('cursor', 'crosshair'));
+		if (target.x > box.x && target.x < box.x2 && target.y >= box.y && target.y < box.y2) {
+			ps.push([(target.x < src.x ? box.x - PD : box.x2 + PD), src.y - PD]);
+			if (dy > dx) {
+				//⬇️
+				ps.push([ps.last()[0], target.y - PD]);
+				ps.push([target.x, target.y - PD]);
+			} else {
+				//← →
+				ps.push([ps.last()[0], target.y]);
+			}
+			return ps;
+		}
 
-		return s;
+		if (target.x >= box.x - PD && target.x <= box.x2 + PD && target.y >= box.y2) {
+			//    |  |         |  |
+			//==========================
+			//    ||      ※      ||
+			//    ||             ||
+			ps.push([target.x < src.x ? box.x - PD : box.x2 + PD, ps.last()[1]]);
+			if (target.y == box.y2) {
+				ps.push([ps.last()[0], target.y + PD], [target.x, target.y + PD]);
+			} else {
+				//b
+				ps.push([ps.last()[0], target.y - PD], [target.x, target.y - PD]);
+			}
 
+			return ps;
+		}
+
+		//    |  |         |  |
+		//==========================
+		// ※  |               | ※
+		//    |               |
+		if (dy > dx) {
+			//b
+			ps.push([target.x, ps.last()[1]]);
+		} else {
+			// l/r?
+			ps.push([target.x < src.x ? target.x + PD : target.x - PD, ps.last()[1]]);
+			ps.push([ps.last()[0], target.y]);
+		}
+
+		return ps;
 	},
-	calculateByAStarEx : function(src, target) {
-		var startTime = new Date().getTime();
-		//indicate a proper step:100 50 25 10 5 2 1
+	getTopSTPoints : function(src, target, box, tbox) {
+		var PD = this.linkPadding;
+		var ps = [];
 
-		if (src.x == target.x && src.y == target.y) {
-			return;
-		}
-
-		var validRegion = this.getValidRegion(src, target);
-		//xxxxxx
-		var showPoints = false;
-		//validRegion.draw();
-		//x-----------
-
-		var step = 19;
-
-		//node:x y parent f g h key nextNode(dx, y) refreh()
-		function getNode(x, y, parent) {
-			return {
-				key : x + ',' + y,
-				x : x,
-				y : y,
-				parent : parent,
-				nextNode : function(dx, dy) {
-					return getNode(this.x + dx, this.y + dy, this);
-				},
-				refresh : function() {
-					this.g = this.parent ? (this.parent.g + Math.abs(this.parent.x - this.x) + Math.abs(this.parent.y - this.y)) : 0;
-					this.h = Math.abs(target.y - this.y) + Math.abs(target.x - this.x);
-
-					//add a factor
-					var factor = 0;
-					if (this.parent && this.parent.parent) {
-						var dx = this.parent.x - this.parent.parent.x;
-						if (dx != 0 && this.y - this.parent.y != 0) {
-							//im now moving horizontally
-							factor += .1;
-						}
-
-						var dy = this.parent.y - this.parent.parent.y;
-						if (dy != 0 && this.x - this.parent.x != 0) {
-							//im now moving vertically
-							factor += .1;
-						}
-					}
-
-					this.f = this.g + this.h + factor;
-					return this;
-				}
-			}.refresh();
-		}
-
-		var closeMap = {};
-
-		var openList = [];
-		openList.openMap = {};
-		openList.sortByMinF = function() {
-			return this.sort(function(o1, o2) {
-				return o1.f - o2.f;
-			});
-		}
-
-		openList.add = function(node) {
-			if (closeMap.hasOwnProperty(node.key) || !validRegion.isNodeValid(node)) return this; //TODO (or is invalid)
-			if (this.openMap.hasOwnProperty(node.key)) {
-				//check g!
-				var tg = currentNode.g + Math.abs(node.x - currentNode.x) + Math.abs(node.y - currentNode.y);
-				//if (tg == node.g && node.h < currentNode.h) console.log('=', currentNode, node);
-				if (tg < node.g) {
-					//change node's parent 2 currentnode
-					node.parent = currentNode;
-					node.refresh();
-					this.sortByMinF();
-				}
-
-				return this;
-			}
-
-			this.openMap[node.key] = node;
-
-			var idx = this.length;
-			$.each(this, function(i, o) {
-				if (o.f > node.f) {
-					idx = i;return false;
-				}
-			});
-			this.splice(idx, 0, node);
-			return this;
-		}
-
-		var srcNode = getNode(src.x, src.y);
-		var currentNode = srcNode;
-		//put srcNode into closeList first!
-		closeMap[srcNode.key] = srcNode;
-
-		var i = 0;
-		var targetPathNode;
-		while (true) {
-			//put 4 nodes into openList
-
-			var xStep = Math.min(step, Math.abs(target.x - currentNode.x));
-			var yStep = Math.min(step, Math.abs(target.y - currentNode.y));
-
-			xStep = Math.max(1, xStep);
-			yStep = Math.max(1, yStep);
-
-			if (i == 0) {
-				xStep = yStep = 1;
-			}
-
-			var nextNode;
-
-			nextNode = currentNode.nextNode(xStep, 0);//right
-			openList.add(nextNode);
-			nextNode = currentNode.nextNode(-xStep, 0);//left
-			openList.add(nextNode);
-
-			nextNode = currentNode.nextNode(0, yStep);//bottom
-			openList.add(nextNode);
-			nextNode = currentNode.nextNode(0, -yStep);//top
-			openList.add(nextNode);
-
-			var minFNode = openList.shift();
-			if (minFNode == null) {
-				console.log('path not found!');
-				break;
-			}
-
-			if (minFNode.x == target.x && minFNode.y == target.y) {
-				//target found!
-				targetPathNode = minFNode;
-				break;
-			}
-
-			closeMap[minFNode.key] = minFNode;
-			//remove minfnode from openlist
-			delete openList.openMap[minFNode.key];
-			currentNode = minFNode;
-
-			i++;
-			if (i >= 10000) break;//warning!
-		}
-
-		console.log((new Date().getTime() - startTime) + 'ms', i + '-times');
-
-		var nodes = [];
-		if (targetPathNode) {
-			var p = targetPathNode;
-			while (p) {
-				nodes.unshift(p);
-				p = p.parent;
-			}
-		}
-
-		var patharr = [];
-		this.reducePaths(nodes).filter(function(node) {
-			patharr.push('L', node.x, node.y);
-		});
-		if (patharr.length > 0) patharr[0] = 'M';
-
-		var lll = patharr.length;
-		var arrow = [];
-		if (lll >= 6) {
-			var lastNode = {
-				x : patharr[lll - 2],
-				y : patharr[lll - 1]
-			};
-			arrow.push('M', lastNode.x, lastNode.y);
-			var secLastNode = {
-				x : patharr[lll - 5],
-				y : patharr[lll - 4]
-			};
-			if (lastNode.x == secLastNode.x) {//tb
-				if (lastNode.y < secLastNode.y) {
-					//t
-					arrow.push('L', lastNode.x + 4, lastNode.y + 10, 'L', lastNode.x - 4, lastNode.y + 10, 'Z');
+		if (target.dir == 't') {
+			if (target.y <= src.y) {
+				if (tbox.x2 <= src.x - PD || tbox.x >= src.x + PD) {
+					ps.push([src.x, target.y - PD], [target.x, target.y - PD]);
 				} else {
-					//b
-					arrow.push('L', lastNode.x + 4, lastNode.y - 10, 'L', lastNode.x - 4, lastNode.y - 10, 'Z');
-				}
-			}
-
-			if (lastNode.y == secLastNode.y) {
-				if (lastNode.x < secLastNode.x) {
-					//l
-					arrow.push('L', lastNode.x + 10, lastNode.y + 4, 'L', lastNode.x + 10, lastNode.y - 4, 'Z');
-				} else {
-					//r
-					arrow.push('L', lastNode.x - 10, lastNode.y + 4, 'L', lastNode.x - 10, lastNode.y - 4, 'Z');
-				}
-			}
-		}
-
-		var paper = this.view.set.paper;
-		var s = paper.set();
-		s.push(paper.path(patharr.join(',')).attr('stroke-width', 2).attr('cursor', 'hand')
-			.data('target', target).data('src', src));
-		s.push(paper.path(arrow.join(',')).attr('fill', 'black').attr('cursor', 'crosshair'));
-
-		//--------------1111111----------------------
-		if (showPoints) {
-			if (window.testset) window.testset.remove();
-			var paper = this.view.set.paper;
-			window.testset = paper.set();
-			for (var key in closeMap) {
-				var n = closeMap[key];
-				window.testset.push(paper.circle(n.x, n.y, 1).attr({
-					fill : 'blue',
-					'stroke-width' : 0,
-					'fill-opacity' :.5
-				}));
-			}
-			for (var key in openList.openMap) {
-				var n = openList.openMap[key];
-				window.testset.push(paper.circle(n.x, n.y, 1).attr({
-					fill : 'yellow',
-					'stroke-width' : 0,
-					'fill-opacity' :.5
-				}));
-			}
-		}
-
-		return s;
-
-	},
-	reducePaths : function(arr) {
-		var key = null;
-		var lastNode = null;
-		var res = [];
-		res.replaceLast = function(o) {
-			this[this.length - 1] = o;
-		}
-
-		arr.filter(function(node) {
-			if (lastNode) {
-				if (!key) {
-					//try 2 define key?
-					if (node.x == lastNode.x) key = 'x';
-					if (node.y == lastNode.y) key = 'y';
-
-					res.push(node);
-				} else {
-					if (node[key] == lastNode[key]) {
-						res.replaceLast(node);
+					ps.push([src.x, src.y - PD]);
+					if (target.x < src.x) {
+						//t r t l b
+						ps.push([tbox.x2 + PD, ps.last()[1]], [tbox.x2 + PD, target.y - PD]);
 					} else {
-						key = (key == 'x') ? 'y' : 'x';
-						res.push(node);
+						//t l t r b
+						ps.push([tbox.x - PD, ps.last()[1]], [tbox.x - PD, target.y - PD]);
 					}
+					ps.push([target.x, target.y - PD]);
+				}
+
+				return ps;
+			}
+
+			//below src
+			ps.push([src.x, src.y - PD]);
+			if (target.x <= box.x - PD || target.x >= box.x2 + PD) {
+				ps.push([target.x, ps.last()[1]]);
+			} else {
+				if (target.x < src.x) {
+					ps.push([box.x - PD, ps.last()[1]]);
+				} else {
+					ps.push([box.x2 + PD, ps.last()[1]]);
+				}
+				ps.push([ps.last()[0], target.y - PD], [target.x, target.y - PD]);
+			}
+
+			return ps;
+		}
+
+		if (target.dir == 'b') {
+			if (target.y <= src.y) {
+				var midy = this.mid(src.y, target.y);
+				ps.push([src.x, midy], [target.x, midy]);
+
+				return ps;
+			}
+
+			ps.push([src.x, src.y - PD]);
+			var midx;
+			if (tbox.x2 < box.x) {
+				midx = this.mid(tbox.x2, box.x);
+			} else if (tbox.x > box.x2) {
+				midx = this.mid(tbox.x, box.x2);
+			} else {
+				ps.last()[1] = Math.min(src.y - PD, tbox.y - PD);
+				if (target.x < src.x) {
+					midx = Math.min(box.x - PD, tbox.x - PD);
+				} else {
+					midx = Math.max(box.x2 + PD, tbox.x2 + PD);
+				}
+			}
+
+			ps.push([midx, ps.last()[1]], [midx, target.y + PD]);
+			ps.push([target.x, ps.last()[1]]);
+
+			return ps;
+		}
+
+		if (target.dir == 'l') {
+			if (tbox.y2 < src.y) {
+				if (target.x < src.x) {
+					//t l t r
+					var midy = this.mid(tbox.y2, src.y);
+					ps.push([src.x, midy], [tbox.x - PD, midy], [tbox.x - PD, target.y]);
+				} else {
+					//t r
+					ps.push([src.x, target.y]);
+				}
+				return ps;
+			}
+
+			if (target.y < src.y && target.x >= src.x) {
+				//t r
+				ps.push([src.x, target.y]);
+				return ps;
+			}
+
+			//intersected or ...
+			ps.push([src.x, Math.min(src.y - PD, tbox.y - PD)]);
+			if (tbox.x <= box.x2) {
+				ps.push([Math.min(box.x - PD, tbox.x - PD), ps.last()[1]]);
+				ps.push([ps.last()[0], target.y]);
+			} else {
+				var midx = this.mid(box.x2, tbox.x);
+				ps.push([midx, ps.last()[1]], [midx, target.y]);
+			}
+		}
+
+		if (target.dir == 'r') {
+			if (tbox.y2 < src.y) {
+				if (target.x > src.x) {
+					//t r t l
+					var midy = this.mid(tbox.y2, src.y);
+					ps.push([src.x, midy], [tbox.x2 + PD, midy], [tbox.x2 + PD, target.y]);
+				} else {
+					//t r
+					ps.push([src.x, target.y]);
+				}
+				return ps;
+			}
+
+			if (target.y < src.y && target.x <= src.x) {
+				//t l
+				ps.push([src.x, target.y]);
+				return ps;
+			}
+
+			//intersected or ...
+			ps.push([src.x, Math.min(src.y - PD, tbox.y - PD)]);
+			if (tbox.x2 >= box.x) {
+				ps.push([Math.max(box.x2 + PD, tbox.x2 + PD), ps.last()[1]]);
+				ps.push([ps.last()[0], target.y]);
+			} else {
+				var midx = this.mid(box.x, tbox.x2);
+				ps.push([midx, ps.last()[1]], [midx, target.y]);
+			}
+		}
+
+		return ps;
+	},
+	getBottomSPoints : function(src, target, box) {
+		var PD = this.linkPadding;
+		var ps = [];
+		var dx = Math.abs(target.x - src.x);
+		var dy = Math.abs(target.y - src.y);
+
+		if (target.y > src.y) {
+
+			//  |         |
+			//----------------
+			//		 ※
+			if (dy >= dx) {
+				var midy = this.mid(target.y, src.y);
+				//↑
+				ps.push([src.x, midy], [target.x, midy]);
+			} else {
+				//→
+				ps.push([src.x, target.y]);
+			}
+			return ps;
+		}
+
+		ps.push([src.x, src.y + PD]);
+		if (target.y <= src.y && target.y > box.y && (target.x <= box.x || target.x >= box.x2)) {
+			//
+			//-----------------------
+			// 	※  ||         ||  ※
+			//     ||		  ||
+			//=======================
+
+			if (target.x > box.x - PD && target.x < box.x2 + PD) {
+				//   |※||......||※|
+				var midx = target.x <= box.x ? box.x - PD : box.x2 + PD;
+				ps.push([midx, ps.last()[1]]);
+				if (dy > dx) {//t
+					ps.push([midx, target.y + PD], [target.x, target.y + PD]);
+				} else {
+					// l/r?
+					ps.push([midx, target.y]);
 				}
 			} else {
-				res.push(node);
+				//  ※||x|......|x||※
+				if (dy > dx) {// b
+					ps.push([target.x, ps.last()[1]]);
+				} else {
+					var midx = target.x < box.x ? target.x + PD : target.x - PD;
+					ps.push([midx, ps.last()[1]], [midx, target.y]);
+				}
 			}
-			lastNode = node;
-		});
+			return ps;
+		}
 
-		return res;
+		if (target.x > box.x && target.x < box.x2 && target.y > box.y && target.y <= box.y2) {
+			ps.push([(target.x < src.x ? box.x - PD : box.x2 + PD), src.y + PD]);
+			if (dy > dx) {
+				//⬆️
+				ps.push([ps.last()[0], target.y + PD]);
+				ps.push([target.x, target.y + PD]);
+			} else {
+				//← →
+				ps.push([ps.last()[0], target.y]);
+			}
+			return ps;
+		}
+
+		if (target.x >= box.x - PD && target.x <= box.x2 + PD && target.y <= box.y) {
+			//    ||      ※      ||
+			//    ||             ||
+			//==========================
+			//    |  |         |  |
+
+			ps.push([target.x < src.x ? box.x - PD : box.x2 + PD, ps.last()[1]]);
+			if (target.y == box.y) {
+				ps.push([ps.last()[0], target.y - PD], [target.x, target.y - PD]);
+			} else {
+				//b
+				ps.push([ps.last()[0], target.y + PD], [target.x, target.y + PD]);
+			}
+
+			return ps;
+		}
+
+		// ※  |               | ※
+		//    |               |
+		//==========================
+		//    |  |         |  |
+
+		if (dy > dx) {
+			//b
+			ps.push([target.x, ps.last()[1]]);
+		} else {
+			// l/r?
+			ps.push([target.x < src.x ? target.x + PD : target.x - PD, ps.last()[1]]);
+			ps.push([ps.last()[0], target.y]);
+		}
+
+		return ps;
+	},
+	getBottomSTPoints : function(src, target, box, tbox) {
+		var PD = this.linkPadding;
+		var ps = [];
+
+		if (target.dir == 'b') {
+			if (target.y >= src.y) {
+				if (tbox.x2 <= src.x - PD || tbox.x >= src.x + PD) {
+					ps.push([src.x, target.y + PD], [target.x, target.y + PD]);
+				} else {
+					ps.push([src.x, src.y + PD]);
+					if (target.x < src.x) {
+						//t r t l b
+						ps.push([tbox.x2 + PD, ps.last()[1]], [tbox.x2 + PD, target.y + PD]);
+					} else {
+						//t l t r b
+						ps.push([tbox.x - PD, ps.last()[1]], [tbox.x - PD, target.y + PD]);
+					}
+					ps.push([target.x, target.y + PD]);
+				}
+
+				return ps;
+			}
+
+			//below src
+			ps.push([src.x, src.y + PD]);
+			if (target.x <= box.x - PD || target.x >= box.x2 + PD) {
+				ps.push([target.x, ps.last()[1]]);
+			} else {
+				if (target.x < src.x) {
+					ps.push([box.x - PD, ps.last()[1]]);
+				} else {
+					ps.push([box.x2 + PD, ps.last()[1]]);
+				}
+				ps.push([ps.last()[0], target.y + PD], [target.x, target.y + PD]);
+			}
+
+			return ps;
+		}
+
+		if (target.dir == 't') {
+			if (target.y >= src.y) {
+				var midy = this.mid(src.y, target.y);
+				ps.push([src.x, midy], [target.x, midy]);
+
+				return ps;
+			}
+
+			ps.push([src.x, src.y + PD]);
+			var midx;
+			if (tbox.x2 < box.x) {
+				midx = this.mid(tbox.x2, box.x);
+			} else if (tbox.x > box.x2) {
+				midx = this.mid(tbox.x, box.x2);
+			} else {
+				ps.last()[1] = Math.max(src.y + PD, tbox.y2 + PD);
+				if (target.x < src.x) {
+					midx = Math.min(box.x - PD, tbox.x - PD);
+				} else {
+					midx = Math.max(box.x2 + PD, tbox.x2 + PD);
+				}
+			}
+
+			ps.push([midx, ps.last()[1]], [midx, target.y - PD]);
+			ps.push([target.x, ps.last()[1]]);
+
+			return ps;
+		}
+
+		if (target.dir == 'l') {
+			if (tbox.y > src.y) {
+				if (target.x < src.x) {
+					//t l t r
+					var midy = this.mid(tbox.y, src.y);
+					ps.push([src.x, midy], [tbox.x - PD, midy], [tbox.x - PD, target.y]);
+				} else {
+					//t r
+					ps.push([src.x, target.y]);
+				}
+				return ps;
+			}
+
+			if (target.y > src.y && target.x >= src.x) {
+				//t r
+				ps.push([src.x, target.y]);
+				return ps;
+			}
+
+			//intersected or ...
+			ps.push([src.x, Math.max(src.y + PD, tbox.y2 + PD)]);
+			if (tbox.x <= box.x2) {
+				ps.push([Math.min(box.x - PD, tbox.x - PD), ps.last()[1]]);
+				ps.push([ps.last()[0], target.y]);
+			} else {
+				var midx = this.mid(box.x2, tbox.x);
+				ps.push([midx, ps.last()[1]], [midx, target.y]);
+			}
+		}
+
+		if (target.dir == 'r') {
+			if (tbox.y > src.y) {
+				if (target.x > src.x) {
+					//t r t l
+					var midy = this.mid(tbox.y, src.y);
+					ps.push([src.x, midy], [tbox.x2 + PD, midy], [tbox.x2 + PD, target.y]);
+				} else {
+					//t r
+					ps.push([src.x, target.y]);
+				}
+				return ps;
+			}
+
+			if (target.y > src.y && target.x <= src.x) {
+				//t l
+				ps.push([src.x, target.y]);
+				return ps;
+			}
+
+			//intersected or ...
+			ps.push([src.x, Math.max(src.y + PD, tbox.y2 + PD)]);
+			if (tbox.x2 >= box.x) {
+				ps.push([Math.max(box.x2 + PD, tbox.x2 + PD), ps.last()[1]]);
+				ps.push([ps.last()[0], target.y]);
+			} else {
+				var midx = this.mid(box.x, tbox.x2);
+				ps.push([midx, ps.last()[1]], [midx, target.y]);
+			}
+		}
+
+		return ps;
+	},
+	getLeftSPoints : function(src, target, box) {
+		var PD = this.linkPadding;
+		var ps = [];
+		var dx = Math.abs(target.x - src.x);
+		var dy = Math.abs(target.y - src.y);
+
+		if (target.x < src.x) {
+			//  |
+			//	|-----
+			//  |
+			//※ |
+			//  |
+			//  |-----
+			//  |
+			if (dx >= dy) {
+				var midx = this.mid(target.x, src.x);
+				//←
+				ps.push([midx, src.y], [midx, target.y]);
+			} else {
+				//⬇️
+				ps.push([target.x, src.y]);
+			}
+			return ps;
+		}
+
+		ps.push([src.x - PD, src.y]);
+		if (target.x >= src.x && target.x < box.x2 && (target.y <= box.y || target.y >= box.y2)) {
+			//    ||     ※   |
+			//    ||=========|
+			//    ||         |
+			//    ||         |
+			//    ||         |
+			//    ||=========|
+			//    ||     ※   |
+			//=======================
+
+			if (target.y > box.y - PD && target.y < box.y2 + PD) {
+				//---
+				//※
+				//===
+				//.
+				//.
+				//===
+				//※
+				//---
+				var midy = target.y <= box.y ? box.y - PD : box.y2 + PD;
+				ps.push([ps.last()[0], midy]);
+				if (dx > dy) {//r
+					ps.push([target.x - PD, midy], [target.x - PD, target.y]);
+				} else {
+					// t/b?
+					ps.push([target.x, midy]);
+				}
+			} else {
+				//※
+				//---
+				//x
+				//===
+				//.
+				//.
+				//===
+				//x
+				//---
+				//※
+				if (dx > dy) {// r
+					ps.push([ps.last()[0], target.y]);
+				} else {
+					var midy = target.y < box.y ? target.y + PD : target.y - PD;
+					ps.push([ps.last()[0], midy], [target.x, midy]);
+				}
+			}
+			return ps;
+		}
+
+		//inbox
+		if (target.x >= box.x && target.x < box.x2 && target.y > box.y && target.y < box.y2) {
+			ps.push([src.x - PD, (target.y < src.y ? box.y - PD : box.y2 + PD)]);
+			if (dx > dy) {
+				//→
+				ps.push([target.x - PD, ps.last()[1]]);
+				ps.push([target.x - PD, target.y]);
+			} else {
+				//↑ ⬇️
+				ps.push([target.x, ps.last()[1]]);
+			}
+			return ps;
+		}
+
+		if (target.y >= box.y - PD && target.y <= box.y2 + PD && target.x >= box.x2) {
+			// ||
+			//-||=========
+			//-||
+			// ||   ※
+			//-||
+			//-||=========
+			// ||
+
+			ps.push([ps.last()[0], target.y < src.y ? box.y - PD : box.y2 + PD]);
+			if (target.x == box.x2) {
+				ps.push([target.x + PD, ps.last()[1]], [target.x + PD, target.y]);
+			} else {
+				//r
+				ps.push([target.x - PD, ps.last()[1]], [target.x - PD, target.y]);
+			}
+
+			return ps;
+		}
+
+		// ||※
+		//-||=========
+		//-||
+		// ||
+		//-||
+		//-||=========
+		// ||※
+		if (dx > dy) {
+			//r
+			ps.push([ps.last()[0], target.y]);
+		} else {
+			// t/b?
+			ps.push([ps.last()[0], target.y < src.y ? target.y + PD : target.y - PD]);
+			ps.push([target.x, ps.last()[1]]);
+		}
+
+		return ps;
+	},
+	getLeftSTPoints : function(src, target, box, tbox) {
+		var PD = this.linkPadding;
+		var ps = [];
+
+		if (target.dir == 'l') {
+			if (target.x <= src.x) {
+				if (tbox.y >= src.y + PD || tbox.y2 <= src.y - PD) {
+					ps.push([target.x - PD, src.y], [target.x - PD, target.y]);
+				} else {
+					ps.push([src.x - PD, src.y]);
+					if (target.y > src.y) {
+						//l t l b r
+						ps.push([ps.last()[0], tbox.y - PD], [target.x - PD, tbox.y - PD]);
+					} else {
+						//t l t r b
+						ps.push([ps.last()[0], tbox.y2 + PD], [target.x - PD, tbox.y2 + PD]);
+					}
+					ps.push([target.x - PD, target.y]);
+				}
+
+				return ps;
+			}
+
+			//right 2 src
+			ps.push([src.x - PD, src.y]);
+			if (target.y <= box.y - PD || target.y >= box.y2 + PD) {
+				ps.push([ps.last()[0], target.y]);
+			} else {
+				if (target.y > src.y) {
+					ps.push([ps.last()[0], box.y2 + PD]);
+				} else {
+					ps.push([ps.last()[0], box.y - PD]);
+				}
+				ps.push([target.x - PD, ps.last()[1]], [target.x - PD, target.y]);
+			}
+
+			return ps;
+		}
+
+		if (target.dir == 'r') {
+			if (target.x <= src.x) {
+				var midx = this.mid(src.x, target.x);
+				ps.push([midx, src.y], [midx, target.y]);
+
+				return ps;
+			}
+
+			ps.push([src.x - PD, src.y]);
+			var midy;
+			if (tbox.y > box.y2) {
+				midy = this.mid(tbox.y, box.y2);
+			} else if (tbox.y2 < box.y) {
+				midy = this.mid(tbox.y2, box.y);
+			} else {
+				ps.last()[0] = Math.min(src.x - PD, tbox.x - PD);
+				if (target.y > src.y) {
+					midy = Math.max(box.y2 + PD, tbox.y2 + PD);
+				} else {
+					midy = Math.min(box.y - PD, tbox.y - PD);
+				}
+			}
+
+			ps.push([ps.last()[0], midy], [target.x + PD, midy]);
+			ps.push([ps.last()[0], target.y]);
+
+			return ps;
+		}
+
+		if (target.dir == 'b') {
+			if (tbox.x2 < src.x) {
+				if (target.y > src.y) {
+					//l b l t
+					var midx = this.mid(tbox.x2, src.x);
+					ps.push([midx, src.y], [midx, tbox.y2 + PD], [target.x, tbox.y2 + PD]);
+				} else {
+					//t r
+					ps.push([target.x, src.y]);
+				}
+				return ps;
+			}
+
+			if (target.x < src.x && target.y <= src.y) {
+				//l t
+				ps.push([target.x, src.y]);
+				return ps;
+			}
+
+			//intersected or ...
+			ps.push([Math.min(src.x - PD, tbox.x - PD), src.y]);
+			if (tbox.y2 >= box.y) {
+				ps.push([ps.last()[0], Math.max(box.y2 + PD, tbox.y2 + PD)]);
+				ps.push([target.x, ps.last()[1]]);
+			} else {
+				var midy = this.mid(box.y2, tbox.y);
+				ps.push([ps.last()[0], midy], [target.x, midy]);
+			}
+		}
+
+		if (target.dir == 't') {
+			if (tbox.x2 < src.x) {
+				if (target.y < src.y) {
+					//l t l b
+					var midx = this.mid(tbox.x2, src.x);
+					ps.push([midx, src.y], [midx, tbox.y - PD], [target.x, tbox.y - PD]);
+				} else {
+					//l b
+					ps.push([target.x, src.y]);
+				}
+				return ps;
+			}
+
+			if (target.x < src.x && target.y >= src.y) {
+				//l t
+				ps.push([target.x, src.y]);
+				return ps;
+			}
+
+			//intersected or ...
+			ps.push([Math.min(src.x - PD, tbox.x - PD), src.y]);
+			if (tbox.y <= box.y2) {
+				ps.push([ps.last()[0], Math.min(box.y - PD, tbox.y - PD)]);
+				ps.push([target.x, ps.last()[1]]);
+			} else {
+				var midy = this.mid(box.y2, tbox.y);
+				ps.push([ps.last()[0], midy], [target.x, midy]);
+			}
+		}
+
+		return ps;
+	},
+	getRightSPoints : function(src, target, box) {
+		var PD = this.linkPadding;
+		var ps = [];
+		var dx = Math.abs(target.x - src.x);
+		var dy = Math.abs(target.y - src.y);
+
+		if (target.x > src.x) {
+			//       |
+			//	-----|
+			//       |
+			//       |※
+			//       |
+			//  -----|
+			//       |
+			if (dx >= dy) {
+				var midx = this.mid(target.x, src.x);
+				//←
+				ps.push([midx, src.y], [midx, target.y]);
+			} else {
+				//⬇️
+				ps.push([target.x, src.y]);
+			}
+			return ps;
+		}
+
+		ps.push([src.x + PD, src.y]);
+		if (target.x <= src.x && target.x > box.x && (target.y <= box.y || target.y >= box.y2)) {
+			//    |     ※   ||
+			//    |=========||
+			//    |         ||
+			//    |         ||
+			//    |         ||
+			//    |=========||
+			//    |     ※   ||
+			//=======================
+
+			if (target.y > box.y - PD && target.y < box.y2 + PD) {
+				//---
+				//  ※
+				//===
+				//  .
+				//  .
+				//===
+				//  ※
+				//---
+				var midy = target.y <= box.y ? box.y - PD : box.y2 + PD;
+				ps.push([ps.last()[0], midy]);
+				if (dx > dy) {//r
+					ps.push([target.x + PD, midy], [target.x + PD, target.y]);
+				} else {
+					// t/b?
+					ps.push([target.x, midy]);
+				}
+			} else {
+				//  ※
+				//---
+				//  x
+				//===
+				//  .
+				//  .
+				//===
+				//  x
+				//---
+				//  ※
+				if (dx > dy) {// l
+					ps.push([ps.last()[0], target.y]);
+				} else {
+					var midy = target.y < box.y ? target.y + PD : target.y - PD;
+					ps.push([ps.last()[0], midy], [target.x, midy]);
+				}
+			}
+			return ps;
+		}
+
+		//inbox
+		if (target.x > box.x && target.x <= box.x2 && target.y > box.y && target.y < box.y2) {
+			ps.push([src.x + PD, (target.y < src.y ? box.y - PD : box.y2 + PD)]);
+			if (dx > dy) {
+				//←
+				ps.push([target.x + PD, ps.last()[1]]);
+				ps.push([target.x + PD, target.y]);
+			} else {
+				//↑ ⬇️
+				ps.push([target.x, ps.last()[1]]);
+			}
+			return ps;
+		}
+
+		if (target.y >= box.y - PD && target.y <= box.y2 + PD && target.x <= box.x) {
+			//         ||
+			//=========||-
+			//         ||-
+			//   ※     ||
+			//         ||-
+			//=========||-
+			//         ||
+
+			ps.push([ps.last()[0], target.y < src.y ? box.y - PD : box.y2 + PD]);
+			if (target.x == box.x) {
+				ps.push([target.x - PD, ps.last()[1]], [target.x - PD, target.y]);
+			} else {
+				//l
+				ps.push([target.x + PD, ps.last()[1]], [target.x + PD, target.y]);
+			}
+
+			return ps;
+		}
+
+		//    ※    ||
+		//=========||-
+		//         ||-
+		//         ||
+		//         ||-
+		//=========||-
+		//    ※    ||
+		if (dx > dy) {
+			//r
+			ps.push([ps.last()[0], target.y]);
+		} else {
+			// t/b?
+			ps.push([ps.last()[0], target.y < src.y ? target.y + PD : target.y - PD]);
+			ps.push([target.x, ps.last()[1]]);
+		}
+
+		return ps;
+	},
+	getRightSTPoints : function(src, target, box, tbox) {
+		var PD = this.linkPadding;
+		var ps = [];
+
+		if (target.dir == 'r') {
+			if (target.x >= src.x) {
+				if (tbox.y >= src.y + PD || tbox.y2 <= src.y - PD) {
+					ps.push([target.x + PD, src.y], [target.x + PD, target.y]);
+				} else {
+					ps.push([src.x + PD, src.y]);
+					if (target.y > src.y) {
+						//r b r t l
+						ps.push([ps.last()[0], tbox.y - PD], [target.x + PD, tbox.y - PD]);
+					} else {
+						//t l t r b
+						ps.push([ps.last()[0], tbox.y2 + PD], [target.x + PD, tbox.y2 + PD]);
+					}
+					ps.push([target.x + PD, target.y]);
+				}
+
+				return ps;
+			}
+
+			//left 2 src
+			ps.push([src.x + PD, src.y]);
+			if (target.y <= box.y - PD || target.y >= box.y2 + PD) {
+				ps.push([ps.last()[0], target.y]);
+			} else {
+				if (target.y > src.y) {
+					ps.push([ps.last()[0], box.y2 + PD]);
+				} else {
+					ps.push([ps.last()[0], box.y - PD]);
+				}
+				ps.push([target.x + PD, ps.last()[1]], [target.x + PD, target.y]);
+			}
+
+			return ps;
+		}
+
+		if (target.dir == 'l') {
+			if (target.x >= src.x) {
+				var midx = this.mid(src.x, target.x);
+				ps.push([midx, src.y], [midx, target.y]);
+
+				return ps;
+			}
+
+			ps.push([src.x + PD, src.y]);
+			var midy;
+			if (tbox.y > box.y2) {
+				midy = this.mid(tbox.y, box.y2);
+			} else if (tbox.y2 < box.y) {
+				midy = this.mid(tbox.y2, box.y);
+			} else {
+				ps.last()[0] = Math.max(src.x + PD, tbox.x + PD);
+				if (target.y > src.y) {
+					midy = Math.max(box.y2 + PD, tbox.y2 + PD);
+				} else {
+					midy = Math.min(box.y - PD, tbox.y - PD);
+				}
+			}
+
+			ps.push([ps.last()[0], midy], [target.x - PD, midy]);
+			ps.push([ps.last()[0], target.y]);
+
+			return ps;
+		}
+
+		if (target.dir == 't') {
+			if (tbox.x > src.x) {
+				if (target.y < src.y) {
+					//r t r b
+					var midx = this.mid(tbox.x, src.x);
+					ps.push([midx, src.y], [midx, tbox.y - PD], [target.x, tbox.y - PD]);
+				} else {
+					//t r
+					ps.push([target.x, src.y]);
+				}
+				return ps;
+			}
+
+			if (target.x > src.x && target.y >= src.y) {
+				//l t
+				ps.push([target.x, src.y]);
+				return ps;
+			}
+
+			//intersected or ...
+			ps.push([Math.max(src.x + PD, tbox.x2 + PD), src.y]);
+			if (tbox.y <= box.y2) {
+				ps.push([ps.last()[0], Math.min(box.y - PD, tbox.y - PD)]);
+				ps.push([target.x, ps.last()[1]]);
+			} else {
+				var midy = this.mid(box.y2, tbox.y);
+				ps.push([ps.last()[0], midy], [target.x, midy]);
+			}
+		}
+
+		if (target.dir == 'b') {
+			if (tbox.x > src.x) {
+				if (target.y > src.y) {
+					//r t r b
+					var midx = this.mid(tbox.x, src.x);
+					ps.push([midx, src.y], [midx, tbox.y2 + PD], [target.x, tbox.y2 + PD]);
+				} else {
+					//t r
+					ps.push([target.x, src.y]);
+				}
+				return ps;
+			}
+
+			if (target.x > src.x && target.y <= src.y) {
+				//l t
+				ps.push([target.x, src.y]);
+				return ps;
+			}
+
+			//intersected or ...
+			ps.push([Math.max(src.x + PD, tbox.x2 + PD), src.y]);
+			if (tbox.y2 >= box.y) {
+				ps.push([ps.last()[0], Math.max(box.y2 + PD, tbox.y2 + PD)]);
+				ps.push([target.x, ps.last()[1]]);
+			} else {
+				var midy = this.mid(box.y, tbox.y2);
+				ps.push([ps.last()[0], midy], [target.x, midy]);
+			}
+		}
+
+		return ps;
+	},
+	getPathThroughST : function(src, target) {
+		var PD = this.linkPadding;
+		var srcV = src.linkend.data('ownerCt').view;
+		var box = srcV.set.getBBox();
+		var points;
+		if (src.dir == 't') {
+			if (!target.dir) {
+				points = this.getTopSPoints(src, target, src.linkend.data('ownerCt').view.set.getBBox());
+			} else {
+				var targetV = target.linkend.data('ownerCt').view;
+				var tbox = targetV.set.getBBox();
+				points = this.getTopSTPoints(src, target, box, tbox);
+			}
+		} else if (src.dir == 'b') {
+			if (!target.dir) {
+				points = this.getBottomSPoints(src, target, src.linkend.data('ownerCt').view.set.getBBox());
+			} else {
+				var targetV = target.linkend.data('ownerCt').view;
+				var tbox = targetV.set.getBBox();
+				points = this.getBottomSTPoints(src, target, box, tbox);
+			}
+		} else if (src.dir == 'l') {
+			if (!target.dir) {
+				points = this.getLeftSPoints(src, target, src.linkend.data('ownerCt').view.set.getBBox());
+			} else {
+				var targetV = target.linkend.data('ownerCt').view;
+				var tbox = targetV.set.getBBox();
+				points = this.getLeftSTPoints(src, target, box, tbox);
+			}
+		} else if (src.dir == 'r') {
+			if (!target.dir) {
+				points = this.getRightSPoints(src, target, src.linkend.data('ownerCt').view.set.getBBox());
+			} else {
+				var targetV = target.linkend.data('ownerCt').view;
+				var tbox = targetV.set.getBBox();
+				points = this.getRightSTPoints(src, target, box, tbox);
+			}
+		}
+		var arr = ['M', src.x, src.y];
+		Ext.each(points, function(p) {
+			arr.push('L', p[0], p[1]);
+		});
+		arr.push('L', target.x, target.y);
+
+		//-------------------------------------------------------
+
+		var lll = arr.length;
+		var arrow = [];
+		if (lll >= 6) {
+			var lastNode = {
+				x : arr[lll - 2],
+				y : arr[lll - 1]
+			};
+			arrow.push('M', lastNode.x, lastNode.y);
+			var secLastNode = {
+				x : arr[lll - 5],
+				y : arr[lll - 4]
+			};
+			if (lastNode.x == secLastNode.x) {//tb
+				if (lastNode.y < secLastNode.y) {
+					//t
+					arrow.push('L', lastNode.x + 4, lastNode.y + 10, 'L', lastNode.x - 4, lastNode.y + 10, 'Z');
+				} else {
+					//b
+					arrow.push('L', lastNode.x + 4, lastNode.y - 10, 'L', lastNode.x - 4, lastNode.y - 10, 'Z');
+				}
+			}
+
+			if (lastNode.y == secLastNode.y) {
+				if (lastNode.x < secLastNode.x) {
+					//l
+					arrow.push('L', lastNode.x + 10, lastNode.y + 4, 'L', lastNode.x + 10, lastNode.y - 4, 'Z');
+				} else {
+					//r
+					arrow.push('L', lastNode.x - 10, lastNode.y + 4, 'L', lastNode.x - 10, lastNode.y - 4, 'Z');
+				}
+			}
+		}
+
+		var paper = this.view.set.paper;
+		var s = paper.set();
+		s.push(paper.path(arr.join(',')).attr('stroke-width', 2).attr('cursor', 'hand')
+			.data('target', target).data('src', src));
+		s.push(paper.path(arrow.join(',')).attr('fill', 'black').attr('cursor', 'crosshair'));
+
+		return s;
+
 	},
 	buildDelegate : function() {
 		var view = this.view;
@@ -3386,6 +3706,8 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 			}
 			if (e.keyCode == 13 || e.keyCode == 9) me.endEdit();
 			if (e.keyCode == 9) me.tabNext();
+		}).mouseup(function(e) {
+			GraphicDesigner.suspendClick();
 		});
 
 	},
@@ -3475,7 +3797,8 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 			left : rect.x + position.left,
 			top : rect.y + position.top,
 			width : rect.width,// $(this.textElement.node).width()),
-			height : rect.height//, $(this.textElement.node).height())
+			height : rect.height,//, $(this.textElement.node).height())
+			cursor : 'text'
 		}).show().val(this.text).select();
 
 		//var o = this.getTransform();
@@ -3486,6 +3809,7 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		//	});
 		//}
 
+		GraphicDesigner.viewEditing = true;
 		this.view.editing = true;
 	},
 	endEdit : function() {
@@ -3494,6 +3818,7 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 
 		var me = this;
 		setTimeout(function() {
+			delete GraphicDesigner.viewEditing;
 			me.view.editing = false;
 		}, 200);
 	},
@@ -4524,14 +4849,23 @@ Ext.define('GraphicDesigner.SelectionModel', {
 
 		});
 
+		this.bindRegionSelection(canvasPanel);
+
+	},
+	bindRegionSelection : function(canvasPanel) {
+		var me = this;
+
 		var startPoint = null;
 		var selectregion = null;
 		var finalSelFrame = null;
+		var canvasoff = null;
+		var pleft = 0;
+		var ptop = 0;
 		var mousemoveL = function(e) {
 			var x = e.pageX;
 			var y = e.pageY;
 
-			var off = canvasPanel.container.offset();
+			var off = canvasoff;
 			var frame = finalSelFrame = {
 				x : Math.min(x, startPoint.x) - off.left,
 				y : Math.min(y, startPoint.y) - off.top,
@@ -4554,7 +4888,7 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			delete GraphicDesigner.selecting;
 			$(this).off('mouseup', mouseupL);
 			$(this).off('mousemove', mousemoveL);
-			selectregion ? selectregion.remove() : null;
+			selectregion ? selectregion.fadeOut(200, function() { $(this).remove();}) : null;
 
 			GraphicDesigner.suspendClick();
 			//select views.
@@ -4562,18 +4896,10 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			if (canvasPanel.views.length == 0) return;
 
 			//try 2 select views
-			var p1 = canvasPanel.canvasContainer.position();
-			//Object {top: 50, left: 160}
-			var p2 = canvasPanel.bgLayer.position();
-			//Object {top: 50, left: 50}
-			var p3 = canvasPanel.container.position();
-			//Object {top: -250, left: -140}
 			var frame = finalSelFrame;
-			frame.x = frame.x + p3.left - p2.left - p1.left;
-			frame.y = frame.y + p3.top - p2.top - p1.top;
+			frame.x = frame.x + pleft;
+			frame.y = frame.y + ptop;
 
-			var tosels = [];
-			var todesels = [];
 			frame.x2 = frame.x + frame.width;
 			frame.y2 = frame.y + frame.height;
 			Ext.each(canvasPanel.views, function(view) {
@@ -4587,7 +4913,7 @@ Ext.define('GraphicDesigner.SelectionModel', {
 
 		};
 		var mousedownL = function(e) {
-			if (e.button != 0 || canvasPanel.viewonly) return;
+			if (e.button != 0 || GraphicDesigner.viewEditing || canvasPanel.viewonly) return;
 			//clear selections
 			me.clearSelection();
 
@@ -4597,11 +4923,21 @@ Ext.define('GraphicDesigner.SelectionModel', {
 				y : e.pageY
 			};
 
+			canvasoff = canvasPanel.container.offset();
+
+			var p1 = canvasPanel.canvasContainer.position();
+			//Object {top: 50, left: 160}
+			var p2 = canvasPanel.bgLayer.position();
+			//Object {top: 50, left: 50}
+			var p3 = canvasPanel.container.position();
+			//Object {top: -250, left: -140}
+			pleft = p3.left - p2.left - p1.left;
+			ptop = p3.top - p2.top - p1.top;
+
 			$(this).mousemove(mousemoveL);
 			$(this).mouseup(mouseupL);
 		};
 		$(canvasPanel.container).mousedown(mousedownL);
-
 	},
 	select : function(views) {
 		this.ownerCt.fireLastCanvasClick();
@@ -4972,8 +5308,8 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 	},
 	infoPanelVisible : false,
 	inspectors : [{
-	//	xtype : 'gdinspector'
-	//}, {
+		//	xtype : 'gdinspector'
+		//}, {
 		xtype : 'gdcanvasinfoinspector'
 	}, {
 		xtype : 'gdframeinfoinspector'
@@ -5032,7 +5368,7 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 		}
 	}
 });
-				//------------inspectors---------------
+//------------inspectors---------------
 Ext.define('GraphicDesigner.Inspector', {
 	xtype : 'gdinspector',
 	extend : 'Ext.button.Button',
