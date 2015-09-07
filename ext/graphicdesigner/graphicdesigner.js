@@ -1183,6 +1183,12 @@ Ext.define('GraphicDesigner.View', {
 	//protected
 	redraw : Ext.emptyFn,
 	layoutInRect : function(rect) {
+		//round all!
+		rect.x = Math.round(rect.x);
+		rect.y = Math.round(rect.y);
+		rect.width = Math.round(rect.width);
+		rect.height = Math.round(rect.height);
+
 		var ct = this.ownerCt;
 		if (ct.constraint) {
 			if (rect.x < ct.constraintPadding) {
@@ -1385,7 +1391,7 @@ Ext.define('GraphicDesigner.View', {
 		var linkers = this.linkers;
 		delete this.linkers;
 		if (!Ext.isEmpty(linkers) && this.linkDelegate) {
-			this.linkDelegate.restoreLinkers(linkers, canvasPanel);
+			this.linkDelegate.restoreLinkers(linkers);
 		}
 
 		this.restoreCustomDescription();
@@ -2037,348 +2043,19 @@ Ext.define('GraphicDesigner.KeyDelegate', {
 });
 
 //==========link delegate!
-//class
-function GDValidRegion(bigBox) {
-	this.bigBox = bigBox;
-	this.forbiddenBoxes = [];
+function GDLinker(src) {
+	this.src = src;
+	this.linkDelegate = src.linkend.data('ownerCt');
+	this.paper = this.linkDelegate.view.set.paper;
 
-	this.isNodeValid = function(node) {
-		//if node is out of bigBox >>invalid
-		if (!GraphicDesigner.isPointInBox(node.x, node.y, this.bigBox)) return false;
-
-		//if node is in any of forbidden boxes(include bounds) >>invalid
-		var invalidFlag = false;
-		Ext.each(this.forbiddenBoxes, function(box) {
-			if (GraphicDesigner.isPointInBox(node.x, node.y, box)) {
-				invalidFlag = true;
-				return false;
-			};
-		});
-		if (invalidFlag) return false;
-
-		return true;
-	}
-
-	this.draw = function() {
-		window.sseett ? window.sseett.remove() : null;
-		var paper = cp.paper;
-		var set = paper.set();
-		window.sseett = set;
-
-		//draw invalid region
-		Ext.each(this.forbiddenBoxes, function(b) {
-			set.push(paper.rect(b.x, b.y, b.width, b.height).toBack().attr({
-				stroke : 'red',
-				fill : 'red',
-				'fill-opacity' : .3
-			}));
-		});
-
-		//draw valid region
-		set.push(paper.rect(this.bigBox.x, this.bigBox.y, this.bigBox.width, this.bigBox.height).toBack().attr({
-			stroke : 'green',
-			fill : 'green',
-			'fill-opacity' : .3
-		}));
-	}
-}
-
-Ext.define('GraphicDesigner.LinkDelegate', {
-	extend : 'GraphicDesigner.ViewDelegate',
-	xtype : 'gdlinkdelegate',
-	linkends : ['t', 'b', 'l', 'r'],
-	set : null,
-	redrawInOutLinkers : function() {
-		var me = this;
-
-		this.set.forEach(function(ele) {
-			var targetx = ele.attr('cx');
-			var targety = ele.attr('cy');
-
-			Ext.each(ele.data('outlinkers'), function(linker) {//linker is a set
-				if (!linker[0].node) return;//path not exists
-				var target = linker[0].data('target');
-				linker.remove();
-				me.drawLinker({
-					x : targetx,
-					y : targety,
-					dir : ele.data('spec'),
-					linkend : ele
-				}, target);
-
-			});
-
-			Ext.each(ele.data('inlinkers'), function(linker) {//linker is a set
-				if (!linker[0].node) return;//path not exists
-				var src = linker[0].data('src');
-				linker.remove();
-				me.drawLinker(src, {
-					x : targetx,
-					y : targety,
-					dir : ele.data('spec'),
-					linkend : ele
-				});
-
-			});
-
-			ele.toFront();
-		});
-	},
-	drawLinker : function(src, target) {
-		//src (x, y, linkend, dir)
-		//target (x, y, linkend, dir)
-		//var pathset = paper.set();
-		src.x = Math.round(src.x);
-		src.y = Math.round(src.y);
-		target.x = Math.round(target.x);
-		target.y = Math.round(target.y);
-
-		var path = this.getPathThroughST(src, target);
-		//bind selection behavior...
-		var me = this;
-		path.click(function(e) {
-			e.stopPropagation();
-			me.view.ownerCt.fireEvent('canvasclicked');
-			me.view.ownerCt.selModel ? me.view.ownerCt.selModel.selectPath(path) : null;
-		});
-
-		if (src.linkend && src.linkend.node) {
-			//remove all destroyed path instances.
-			var linkers = src.linkend.data('outlinkers').filter(function(l) {
-				if (l == null) return false;
-				return l[0].node != null;
-			});
-			linkers.push(path);
-			src.linkend.data('outlinkers', linkers);
-		}
-		if (target.linkend && target.linkend.node) {
-			//remove all destroyed path instances.
-			var linkers = target.linkend.data('inlinkers').filter(function(l) {
-				if (l == null) return false;
-				return l[0].node != null;
-			});
-			linkers.push(path);
-			target.linkend.data('inlinkers', linkers);
-		}
-
-		return path;
-	},
-	getLinkersData : function() {
-		var linkers = [];
-		this.set.forEach(function(linkend) {
-			linkend.data('outlinkers').filter(function(linker) {
-				if (!linker[0].node) return;//this path is already destoryed,ignore it!
-
-				var target = Ext.apply({}, linker[0].data('target'));
-				target.viewId = target.linkend ? target.linkend.data('ownerCt').view.viewId : null;
-				delete target.linkend;
-				linkers.push({
-					spec : linkend.data('spec'),
-					target : target
-				});
-			});
-		});
-
-		return linkers;
-	},
-	restoreLinkers : function(linkers, canvasPanel) {
-		var me = this;
-		linkers.filter(function(linker) {
-			var srclinkend = me.getLinkendBySpec(linker.spec);
-			if (!srclinkend) return;
-
-			var targetlinkend;
-
-			var target = linker.target;
-			if (target.dir && target.viewId) {
-				//try 2 find target view
-				var targetView = canvasPanel.getView(target.viewId);
-				if (targetView && targetView.linkDelegate) {
-					targetlinkend = targetView.linkDelegate.getLinkendBySpec(target.dir);
-				}
-			}
-
-			me.drawLinker({
-				x : srclinkend.attr('cx'),
-				y : srclinkend.attr('cy'),
-				linkend : srclinkend,
-				dir : linker.spec
-			}, {
-				x : target.x,
-				y : target.y,
-				dir : target.dir,
-				linkend : targetlinkend
-			});
-
-		});
-
-	},
-	getLinkendBySpec : function(spec) {
-		var res;
-		this.set.forEach(function(le) {
-			if (le.data('spec') == spec) {
-				res = le;
-				return false;
-			}
-		});
-
-		return res;
-	},
-	getDefaultOutBoxForbiddenBoxes : function() {
-		var box = this.view.set.getBBox();
-
-		//-----------------
-		//|1|  9  |  11 |2|
-		//|-|-----------|-|
-		//|5|           |7|
-		//|-|    BOX    |-|
-		//|6|           |8|
-		//|-|-----------|-|
-		//|3|  10  | 12 |4|
-		//-----------------
-
-		return [{
-			x : box.x + 1,
-			y : box.y + 1,
-			width : box.width - 2,
-			height : box.height - 2
-		}, {
-			x : box.x - 19, //>>1
-			y : box.y - 19,
-			width : 18,
-			height : 18
-		}, {
-			x : box.x2 + 1, //>>2
-			y : box.y - 19,
-			width : 18,
-			height : 18
-		}, {
-			x : box.x - 19, //>>3
-			y : box.y2 + 1,
-			width : 18,
-			height : 18
-		}, {
-			x : box.x2 + 1, //>>4
-			y : box.y2 + 1,
-			width : 18,
-			height : 18
-		}, {
-			x : box.x - 19,	//>>5
-			y : box.y,
-			width : 19,
-			height : box.height / 2 - 1
-		}, {
-			x : box.x - 19, //>>6
-			y : box.y + box.height / 2 + 1,
-			width : 19,
-			height : box.height / 2 - 1
-		}, {
-			x : box.x2, //>>7
-			y : box.y,
-			width : 19,
-			height : box.height / 2 - 1
-		}, {
-			x : box.x2, //>>8
-			y : box.y + box.height / 2 + 1,
-			width : 19,
-			height : box.height / 2 - 1
-		}, {
-			x : box.x, //>>9
-			y : box.y - 19,
-			width : box.width / 2 - 1,
-			height : 19
-		}, {
-			x : box.x, //>>10
-			y : box.y2,
-			width : box.width / 2 - 1,
-			height : 19
-		}, {
-			x : box.x + box.width / 2 + 1, //>>11
-			y : box.y - 19,
-			width : box.width / 2 - 1,
-			height : 19
-		}, {
-			x : box.x + box.width / 2 + 1, //>>12
-			y : box.y2,
-			width : box.width / 2 - 1,
-			height : 19
-		}];
-	},
-	getForbiddenBoxes : function(target) {
-		var box = this.view.set.getBBox();
-
-		//-----------------
-		//|1|  9  |  11 |2|
-		//|-|-----------|-|
-		//|5|           |7|
-		//|-|    BOX    |-|
-		//|6|           |8|
-		//|-|-----------|-|
-		//|3|  10  | 12 |4|
-		//-----------------
-
-		var defaultForbiddenBoxes = this.getDefaultOutBoxForbiddenBoxes();
-		if (!target || !GraphicDesigner.isPointInBox(target.x, target.y, {
-				x : box.x - 19,
-				y : box.y - 19,
-				width : box.width + 38,
-				height : box.height + 38
-			})) {
-			//this delegate is a target delegate or target point is out of outbox
-			//return default forbidden regions...
-			return defaultForbiddenBoxes;
-		}
-
-		//if in box,no forbidden region!
-		if (GraphicDesigner.isPointInBox(target.x, target.y, box)) return [];
-
-
-		//target is out box,in outterBox
-		//check if target is in any of 12345678 forbidden boxes, delete one!
-		Ext.each(defaultForbiddenBoxes, function(box, idx, slf) {
-			if (GraphicDesigner.isPointInBox(target.x, target.y, box)) {
-				delete slf[idx];
-				return false;
-			}
-		});
-
-		//remove null one & return!
-		return defaultForbiddenBoxes.filter(function(b) {return b != null;});
-	},
-	getValidRegion : function(src, target) {
-		var srcBox = src.linkend.data('ownerCt').view.set.getBBox();
-
-		//calsulate big box
-		var bigBox = {};
-		var region = new GDValidRegion(bigBox);
-		var padding = 40;
-		if (target.linkend) {
-			var targetBox = target.linkend.data('ownerCt').view.set.getBBox();
-			bigBox.x = Math.min(srcBox.x - padding, targetBox.x - padding);
-			bigBox.y = Math.min(srcBox.y - padding, targetBox.y - padding);
-			bigBox.x2 = Math.max(srcBox.x2 + padding, targetBox.x2 + padding);
-			bigBox.y2 = Math.max(srcBox.y2 + padding, targetBox.y2 + padding);
-
-			region.forbiddenBoxes = region.forbiddenBoxes.concat(target.linkend.data('ownerCt').getForbiddenBoxes());
-		} else {
-			bigBox.x = Math.min(srcBox.x - padding, target.x);
-			bigBox.y = Math.min(srcBox.y - padding, target.y);
-			bigBox.x2 = Math.max(srcBox.x2 + padding, target.x);
-			bigBox.y2 = Math.max(srcBox.y2 + padding, target.y);
-		}
-
-		bigBox.width = bigBox.x2 - bigBox.x;
-		bigBox.height = bigBox.y2 - bigBox.y;
-
-		region.forbiddenBoxes = region.forbiddenBoxes.concat(src.linkend.data('ownerCt').getForbiddenBoxes(target));
-
-		return region;
-	},
-	linkPadding : 30,
-	mid : function(a, b) {
+	this.linkPadding = 30;
+	this.mid = function(a, b) {
 		return Math.floor((a + b) / 2);
-	},
-	getTopSPoints : function(src, target, box) {
+	};
+	//stroke-dasharray [“”, “-”, “.”, “-.”, “-..”, “. ”, “- ”, “--”, “- .”, “--.”, “--..”]
+	this.dasharray = '';
+
+	this.getTopSPoints = function(src, target, box) {
 		var PD = this.linkPadding;
 		var ps = [];
 		var dx = Math.abs(target.x - src.x);
@@ -2472,8 +2149,8 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		}
 
 		return ps;
-	},
-	getTopSTPoints : function(src, target, box, tbox) {
+	};
+	this.getTopSTPoints = function(src, target, box, tbox) {
 		var PD = this.linkPadding;
 		var ps = [];
 
@@ -2602,8 +2279,8 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		}
 
 		return ps;
-	},
-	getBottomSPoints : function(src, target, box) {
+	};
+	this.getBottomSPoints = function(src, target, box) {
 		var PD = this.linkPadding;
 		var ps = [];
 		var dx = Math.abs(target.x - src.x);
@@ -2700,8 +2377,8 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		}
 
 		return ps;
-	},
-	getBottomSTPoints : function(src, target, box, tbox) {
+	};
+	this.getBottomSTPoints = function(src, target, box, tbox) {
 		var PD = this.linkPadding;
 		var ps = [];
 
@@ -2830,8 +2507,8 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		}
 
 		return ps;
-	},
-	getLeftSPoints : function(src, target, box) {
+	};
+	this.getLeftSPoints = function(src, target, box) {
 		var PD = this.linkPadding;
 		var ps = [];
 		var dx = Math.abs(target.x - src.x);
@@ -2956,8 +2633,8 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		}
 
 		return ps;
-	},
-	getLeftSTPoints : function(src, target, box, tbox) {
+	};
+	this.getLeftSTPoints = function(src, target, box, tbox) {
 		var PD = this.linkPadding;
 		var ps = [];
 
@@ -3086,8 +2763,8 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		}
 
 		return ps;
-	},
-	getRightSPoints : function(src, target, box) {
+	};
+	this.getRightSPoints = function(src, target, box) {
 		var PD = this.linkPadding;
 		var ps = [];
 		var dx = Math.abs(target.x - src.x);
@@ -3212,8 +2889,8 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		}
 
 		return ps;
-	},
-	getRightSTPoints : function(src, target, box, tbox) {
+	};
+	this.getRightSTPoints = function(src, target, box, tbox) {
 		var PD = this.linkPadding;
 		var ps = [];
 
@@ -3342,9 +3019,8 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		}
 
 		return ps;
-	},
-	getPathThroughST : function(src, target) {
-		var PD = this.linkPadding;
+	};
+	this.getLinkerPoints = function(src, target) {
 		var srcV = src.linkend.data('ownerCt').view;
 		var box = srcV.set.getBBox();
 		var points;
@@ -3381,136 +3057,419 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 				points = this.getRightSTPoints(src, target, box, tbox);
 			}
 		}
-		var arr = ['M', src.x, src.y];
-		Ext.each(points, function(p) {
-			arr.push('L', p[0], p[1]);
-		});
-		arr.push('L', target.x, target.y);
 
-		//-------------------------------------------------------
+		points.unshift([src.x, src.y]);
+		points.push([target.x, target.y]);
 
-		var lll = arr.length;
-		var arrow = [];
-		if (lll >= 6) {
-			var lastNode = {
-				x : arr[lll - 2],
-				y : arr[lll - 1]
-			};
-			arrow.push('M', lastNode.x, lastNode.y);
-			var secLastNode = {
-				x : arr[lll - 5],
-				y : arr[lll - 4]
-			};
-			if (lastNode.x == secLastNode.x) {//tb
-				if (lastNode.y < secLastNode.y) {
-					//t
-					arrow.push('L', lastNode.x + 4, lastNode.y + 10, 'L', lastNode.x - 4, lastNode.y + 10, 'Z');
+		return points;
+	};
+
+	var targetlinkendHighlight = null;
+
+	this.paths = null;
+	this.arrow = null;
+	this.draw = function() {
+		//draw path!
+		this.drawByPoints(this.getLinkerPoints(this.src, this.target));
+	}
+
+	this.drawByPoints = function(points) {
+		this.paths ? this.paths.remove() : null;
+		this.paths = this.paper.set();
+
+		for (var i = 0; i < points.length - 1; i++) {
+			var p1 = points[i];
+			var p2 = points[i + 1];
+			var path = this.paper.path('M' + p1[0] + ',' + p1[1] + 'L' + p2[0] + ',' + p2[1]);
+			this.paths.push(path);
+
+			path.mousedown(function(e) {
+				e.stopPropagation();
+			}).attr({
+				'stroke-width' : 2,
+				cursor : 'pointer',
+				'stroke-dasharray' : this.dasharray
+			});
+			if (i >= 1 && i + 1 <= points.length - 2) {
+				if (p1[0] == p2[0]) {
+					//can move l r
+					path.dir = 'x';
+					path.attr({
+						cursor : 'ew-resize'
+					});
 				} else {
-					//b
-					arrow.push('L', lastNode.x + 4, lastNode.y - 10, 'L', lastNode.x - 4, lastNode.y - 10, 'Z');
+					path.dir = 'y';
+					path.attr({
+						cursor : 'ns-resize'
+					});
 				}
-			}
 
-			if (lastNode.y == secLastNode.y) {
-				if (lastNode.x < secLastNode.x) {
-					//l
-					arrow.push('L', lastNode.x + 10, lastNode.y + 4, 'L', lastNode.x + 10, lastNode.y - 4, 'Z');
-				} else {
-					//r
-					arrow.push('L', lastNode.x - 10, lastNode.y + 4, 'L', lastNode.x - 10, lastNode.y - 4, 'Z');
-				}
+				var me = this;
+				path.idx = i;
+				path.drag(function(dx, dy) {
+					var idx = this.idx;
+					if (this.dir == 'x') {
+						var x = this.startValue + dx;
+						var ps = this.attr('path');
+						ps[0][1] = ps[1][1] = x;
+						this.attr('path', ps);
+
+						var prePath = me.paths[idx - 1];
+						var prePathP = prePath.attr('path');
+						prePathP[1][1] = x;
+						prePath.attr('path', prePathP);
+
+						var nextPath = me.paths[idx + 1];
+						var nextPathP = nextPath.attr('path');
+						nextPathP[0][1] = x;
+						nextPath.attr('path', nextPathP);
+					} else {
+						var y = this.startValue + dy;
+						var ps = this.attr('path');
+						ps[0][2] = ps[1][2] = y;
+						this.attr('path', ps);
+
+						var prePath = me.paths[idx - 1];
+						var prePathP = prePath.attr('path');
+						prePathP[1][2] = y;
+						prePath.attr('path', prePathP);
+
+						var nextPath = me.paths[idx + 1];
+						var nextPathP = nextPath.attr('path');
+						nextPathP[0][2] = y;
+						nextPath.attr('path', nextPathP);
+					}
+
+					me.drawArrow();
+					me.dehighlight();
+					me.highlight();
+
+				}, function() {
+					if (this.dir == 'x') {
+						this.startValue = this.attr('path')[0][1];
+					} else {
+						this.startValue = this.attr('path')[0][2];
+					}
+
+					var ld = me.linkDelegate;
+					ld.view.ownerCt.selModel ? ld.view.ownerCt.selModel.selectLinker(me) : null;
+				}, function() {
+					delete this.startValue;
+				});
 			}
 		}
 
-		var paper = this.view.set.paper;
-		var s = paper.set();
-		s.push(paper.path(arr.join(',')).attr('stroke-width', 2).attr('cursor', 'hand')
-			.data('target', target).data('src', src));
-		s.push(paper.path(arrow.join(',')).attr('fill', 'black').attr('cursor', 'crosshair'));
+		this.drawArrow();
+	}
 
-		return s;
+	this.drawArrow = function() {
+		if (this.arrowDragging) {
+			delete this.arrowDragging;
+		} else {
+			this.arrow ? this.arrow.remove() : null;
+		}
+		this.arrow = null;
+		var arr = this.paths[this.paths.length - 1].attr('path');
+
+		//draw path!
+		var arrowPathArr = [];
+		var lastNode = {
+			x : arr[1][1],
+			y : arr[1][2]
+		};
+		arrowPathArr.push('M', lastNode.x, lastNode.y);
+		var secLastNode = {
+			x : arr[0][1],
+			y : arr[0][2]
+		};
+		if (lastNode.x == secLastNode.x) {//tb
+			if (lastNode.y < secLastNode.y) {
+				//t
+				arrowPathArr.push('L', lastNode.x + 4, lastNode.y + 10, 'L', lastNode.x - 4, lastNode.y + 10, 'Z');
+			} else {
+				//b
+				arrowPathArr.push('L', lastNode.x + 4, lastNode.y - 10, 'L', lastNode.x - 4, lastNode.y - 10, 'Z');
+			}
+		} else {
+			if (lastNode.x < secLastNode.x) {
+				//l
+				arrowPathArr.push('L', lastNode.x + 10, lastNode.y + 4, 'L', lastNode.x + 10, lastNode.y - 4, 'Z');
+			} else {
+				//r
+				arrowPathArr.push('L', lastNode.x - 10, lastNode.y + 4, 'L', lastNode.x - 10, lastNode.y - 4, 'Z');
+			}
+		}
+
+		this.arrow = this.paper.path(arrowPathArr.join(',')).attr('fill', 'black').attr('cursor', 'move');
+		this.arrow.mousedown(function(e) {
+			e.stopPropagation();
+		})
+
+		var me = this;
+		var ld = this.linkDelegate;
+		this.arrow.drag(function(dx, dy) {
+			//try 2 remove inlinkers if target has linkend
+			if (me.target.linkend) {
+				var index = me.target.linkend.data('inlinkers').indexOf(me);
+				if (index > -1) me.target.linkend.data('inlinkers').splice(index, 1);
+			}
+			me.detectAndDraw(this.dx + dx, this.dy + dy);
+
+			me.dehighlight();
+			me.highlight();
+			me.paths.toFront();
+			me.arrow.toFront();
+
+			this.hide();
+		}, function() {
+			this.dx = me.target.x - me.src.x;
+			this.dy = me.target.y - me.src.y;
+			ld.view.ownerCt.selModel ? ld.view.ownerCt.selModel.selectLinker(me) : null;
+			me.arrowDragging = true;
+		}, function() {
+			if (!me.arrowDragging) {
+				this.remove();
+				me.saveToLinkends();
+				me.complete();
+			} else {
+				delete me.arrowDragging;
+			}
+		});
+	}
+
+	this.complete = function() {
+		targetlinkendHighlight ? targetlinkendHighlight.remove() : null;
+		targetlinkendHighlight = null;
+
+		var me = this;
+		var ld = this.linkDelegate;
+
+		this.paths.click(function(e) {
+			e.stopPropagation();
+			ld.view.ownerCt.fireEvent('canvasclicked');
+			ld.view.ownerCt.selModel ? ld.view.ownerCt.selModel.selectLinker(me) : null;
+		});
+	}
+
+	this.saveToLinkends = function() {
+		//store data...
+		this.src.linkend ? this.src.linkend.data('outlinkers').push(this) : null;
+		this.target.linkend ? this.target.linkend.data('inlinkers').push(this) : null;
+	}
+
+	this.highlight = function() {
+		this.dehighlight();
+		this.fx = [this.paths.glow({width : 2}), this.arrow.glow({width : 2})];
+		this.paths.toFront();
+		this.arrow.toFront();
+	}
+	this.dehighlight = function() {
+		this.fx ? this.fx[0].remove() && this.fx[1].remove() : null;
+		delete this.fx;
+	}
+
+	var cp = this.linkDelegate.view.ownerCt;
+	this.detectAndDraw = function(dx, dy) {
+		targetlinkendHighlight ? targetlinkendHighlight.remove() : null;
+		targetlinkendHighlight = null;
+
+		var target = {
+			x : Math.round(this.src.x + dx),
+			y : Math.round(this.src.y + dy)
+		};
+
+		var detectBox = {
+			x : target.x - 5,
+			y : target.y - 5,
+			width : 10,
+			height : 10
+		};
+		var targetView = cp.detectViewsByRect(detectBox, 1, function(v) { return v.linkDelegate != null;})[0];
+		if (targetView) {
+			//TRY 2 LINK 2 ANOTHER VIEWS' LINKEND
+			targetView.linkDelegate.set.show();
+			Ext.each(targetView.linkDelegate.set, function(linkend) {
+				if (GraphicDesigner.isBBoxIntersect(linkend.getBBox(), detectBox)) {
+					target.linkend = linkend;
+					return false;
+				}
+			});
+
+			if (target.linkend) {
+				var targetLinkEnd = target.linkend;
+				target.dir = targetLinkEnd.data('spec');
+				target.x = targetLinkEnd.attr('cx');
+				target.y = targetLinkEnd.attr('cy');
+
+				targetlinkendHighlight = targetLinkEnd.paper.
+					circle(target.x, target.y, 10).attr({fill : 'red', stroke : 'red', opacity : .5});
+				targetLinkEnd.toFront();
+			}
+		}
+
+		//default draw a link that is no target linkend!
+		this.target = target;
+		this.draw();
+	}
+
+	this.remove = function() {
+		this.dehighlight();
+		this.paths.remove();
+		this.arrow.remove();
+		//remove datas...
+
+		if (this.src.linkend) {
+			var index = this.src.linkend.data('outlinkers').indexOf(this);
+			if (index > -1) this.src.linkend.data('outlinkers').splice(index, 1);
+		}
+		if (this.target.linkend) {
+			var index = this.target.linkend.data('inlinkers').indexOf(this);
+			if (index > -1) this.target.linkend.data('inlinkers').splice(index, 1);
+		}
+	}
+}
+
+Ext.define('GraphicDesigner.LinkDelegate', {
+	extend : 'GraphicDesigner.ViewDelegate',
+	xtype : 'gdlinkdelegate',
+	linkends : ['t', 'b', 'l', 'r'],
+	redrawInOutLinkersWhenLayout : function() {
+		this.set.forEach(function(ele) {
+			var targetx = ele.attr('cx');
+			var targety = ele.attr('cy');
+
+			Ext.each(ele.data('outlinkers'), function(linker) {
+				//src x, y changed!
+				linker.src.x = targetx;
+				linker.src.y = targety;
+				linker.draw();
+				linker.complete();
+			});
+
+			Ext.each(ele.data('inlinkers'), function(linker) {//linker is a set
+				//target x, y changed!
+				linker.target.x = targetx;
+				linker.target.y = targety;
+				linker.draw();
+				linker.complete();
+			});
+
+			ele.toFront();
+		});
+	},
+	getLinkersData : function() {
+		var linkers = [];
+		this.set.forEach(function(linkend) {
+			linkend.data('outlinkers').filter(function(linker) {
+				var target = {
+					x : linker.target.x,
+					y : linker.target.y,
+					dir : linker.target.dir
+				};
+				target.viewId = linker.target.linkend ? linker.target.linkend.data('ownerCt').view.viewId : null;
+
+				var points = [];
+				linker.paths.forEach(function(p) {
+					var path = p.attr('path');
+					points.push([path[1][1], path[1][2]]);
+				});
+				points.pop();
+				linkers.push({
+					spec : linkend.data('spec'),
+					target : target,
+					points : points
+				});
+			});
+		});
+
+		return linkers;
+	},
+	restoreLinkers : function(linkers) {
+		var cp = this.view.ownerCt;
+		var me = this;
+		linkers.filter(function(linkerData) {
+			var srclinkend = me.getLinkendBySpec(linkerData.spec);
+			if (!srclinkend) return;
+
+			var targetlinkend;
+
+			var target = linkerData.target;
+			if (target.dir && target.viewId) {
+				//try 2 find target view
+				var targetView = cp.getView(target.viewId);
+				if (targetView && targetView.linkDelegate) {
+					targetlinkend = targetView.linkDelegate.getLinkendBySpec(target.dir);
+				}
+			}
+
+			var linker = new GDLinker({
+				x : srclinkend.attr('cx'),
+				y : srclinkend.attr('cy'),
+				linkend : srclinkend,
+				dir : linkerData.spec
+			});
+			linker.target = {
+				x : target.x,
+				y : target.y,
+				dir : target.dir,
+				linkend : targetlinkend
+			};
+
+			if (linkerData.points) {
+				var points = Ext.apply([], linkerData.points);
+				points.unshift([linker.src.x, linker.src.y]);
+				points.push([linker.target.x, linker.target.y]);
+				linker.drawByPoints(points);
+			} else {
+				linker.draw();
+			}
+			linker.saveToLinkends();
+			linker.complete();
+		});
 
 	},
-	buildDelegate : function() {
-		var view = this.view;
-		var paper = this.view.set.paper;
+	getLinkendBySpec : function(spec) {
+		var res = null;
+		this.set.forEach(function(le) {
+			if (le.data('spec') == spec) {
+				res = le;
+				return false;
+			}
+		});
 
+		return res;
+	},
+	buildDelegate : function() {
+		var paper = this.view.set.paper;
 		this.set = paper.set();
 
-		function bindLink(linkpoint) {
+		function bindLink(linkend) {
 
-			var targetlinkendHighlight = null;
-
-			linkpoint.mousedown(function(e) {
+			linkend.mousedown(function(e) {
 				e.stopPropagation();
 			});
-			linkpoint.drag(function(dx, dy, x, y, e) {
-				if (this.data('currentlinker')) this.data('currentlinker').remove();
 
-				targetlinkendHighlight ? targetlinkendHighlight.remove() : null;
-
-				var targetView = view.ownerCt.detectViewsByRect({x : this.ox + dx - 10, y : this.oy + dy - 10, width: 20, height: 20}, 1, function(v) { return v.linkDelegate != null;})[0];
-
-				var targetx = this.ox + dx;
-				var targety = this.oy + dy;
-				var tdir = null;
-
-				var targetLinkEnd;
-				if (targetView) {
-					//TODO TRY 2 LINK2 ANOTHER VIEWS' LINKEND
-					targetView.linkDelegate.set.show();
-					Ext.each(targetView.linkDelegate.set, function(linkend) {
-						if (linkend == linkpoint) return;
-						var bx = linkend.getBBox();
-						var centerX = bx.x + bx.width / 2;
-						var centerY = bx.y + bx.height / 2;
-						if (Math.abs(targetx - centerX) <= 5 && Math.abs(targety - centerY) <= 5) {
-							targetLinkEnd = linkend;
-							return false;
-						}
-					});
-
-					if (targetLinkEnd) {
-						tdir = targetLinkEnd.data('spec');
-						var bx = targetLinkEnd.getBBox();
-						targetx = bx.x + bx.width / 2;
-						targety = bx.y + bx.height / 2;
-
-						targetlinkendHighlight = targetLinkEnd.paper.
-							circle(targetLinkEnd.attr('cx'), targetLinkEnd.attr('cy'), 10).attr({fill : 'red', stroke : 'red', opacity:.5});
-						targetLinkEnd.toFront();
-					}
-				}
-
-				//default draw a link that is no target linkend!
-				var path = me.drawLinker({
-					x : this.ox,
-					y : this.oy,
-					dir : linkpoint.data('spec'),
-					linkend : this
-				}, {
-					x : targetx,
-					y : targety,
-					dir : tdir,
-					linkend : targetLinkEnd
-				});
-
+			linkend.drag(function(dx, dy) {
+				this.linker.detectAndDraw(dx, dy);
 				this.toFront();
-				this.data('currentlinker', path);
-			}, function(x, y ,e) {
-				this.ox = this.attr('cx');
-				this.oy = this.attr('cy');
-			}, function(e) {
-				this.removeData('currentlinker');
-				targetlinkendHighlight ? targetlinkendHighlight.remove() : null;
+			}, function() {
+				this.linker = new GDLinker({
+					x : Math.round(this.attr('cx')),
+					y : Math.round(this.attr('cy')),
+					dir : this.data('spec'),
+					linkend : linkend
+				});
+			}, function() {
+				this.linker.saveToLinkends();
+				this.linker.complete();
+				delete this.linker;
 			});
 		}
 
 		if (this.linkends.indexOf('t') != -1) {
 			var t = this.produceLinkend('t');
 			this.set.push(t);
-
-			bindLink(t, 't');
+			bindLink(t);
 		}
 
 		if (this.linkends.indexOf('r') != -1) {
@@ -3538,20 +3497,19 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 			me.set.show();
 		}, Ext.emptyFn);
 
-		view.on('hover', function() {
-			if (GraphicDesigner.selecting) return;
-			me.set.toFront().show();
-		});
-		view.on('unhover', function() {
-			if (!view.selected) me.set.hide();
-		});
-
 		this.set.hide();
 
 	},
 	getEventListeners : function() {
 		var me = this;
 		return {
+			hover : function() {
+				if (GraphicDesigner.selecting) return;
+				me.set.toFront().show();
+			},
+			unhover : function() {
+				if (!this.selected) me.set.hide();
+			},
 			zindexed : function() {
 				if (me.view.selected) {
 					new Ext.util.DelayedTask(function(){
@@ -3567,7 +3525,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 			},
 			layout : function() {
 				me.layoutElements();
-				me.redrawInOutLinkers();
+				me.redrawInOutLinkersWhenLayout();
 			},
 			dragstart : function() {
 				me.set.toFront().show();
@@ -3590,18 +3548,20 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 		var box = this.view.frame;
 		this.set.forEach(function(ele) {
 			if (ele.data('type') != 'linkend') return;
+			var hw = box.width / 2;
+			var hh = box.height / 2;
 			switch(ele.data('spec')) {
 				case 't':
-					ele.attr({cx: box.x + box.width / 2, cy: box.y});
+					ele.attr({cx: box.x + hw, cy: box.y});
 					break;
 				case 'r':
-					ele.attr({cx: box.x + box.width, cy: box.y + box.height / 2});
+					ele.attr({cx: box.x + box.width, cy: box.y + hh});
 					break;
 				case 'b':
-					ele.attr({cx: box.x + box.width / 2, cy: box.y + box.height});
+					ele.attr({cx: box.x + hw, cy: box.y + box.height});
 					break;
 				case 'l':
-					ele.attr({cx: box.x, cy: box.y + box.height / 2});
+					ele.attr({cx: box.x, cy: box.y + hh});
 					break;
 			}
 		});
@@ -4744,64 +4704,17 @@ Ext.define('GraphicDesigner.SelectionModel', {
 	xtype : 'gdselmodel',
 	requires : ['GraphicDesigner.CanvasPanel'],
 	//private
-	fx : [],
-	pathSels : [],
-	//private
-	pathwalkers : [],
-	selectPath : function(pathset) {
-		this.pathSels.push(pathset);
-		this.fx.push(pathset.glow({
-			width : 2
-		}));
-
-		//var me = this;
-		//function producePathWalker(path) {
-		//	var p = path.paper.path(path.getSubpath(0, 3)).attr({
-		//		stroke : 'white',
-		//		'stroke-width' : 3
-		//	});
-		//
-		//	var length = path.getTotalLength();
-		//	p.start = function() {
-		//		this.runByStart(0);
-		//	};
-		//
-		//	p.runByStart = function(start) {
-		//		if (start >= length) {
-		//			this.stop().remove();
-		//			me.pathwalkers.remove(this);
-		//			return;
-		//		}
-		//		var ts = this;
-		//		this.animate({
-		//			path : pathset[0].getSubpath(start, start + 3)
-		//		}, 100, null, function() {
-		//			start += 10;
-		//			ts.runByStart(start);
-		//		});
-		//	}
-		//
-		//	return p;
-		//}
-		//
-		//this.intCode = setInterval(function() {
-		//	var p = producePathWalker(pathset[0]);
-		//	me.pathwalkers.push(p);
-		//	p.start();
-		//}, 500);
-
+	linkerSels : [],
+	selectLinker : function(linker) {
+		linker.highlight();
+		this.linkerSels.push(linker);
 	},
-	clearPathSels : function() {
-		this.fx.filter(function(f) {f.remove();});
-		this.fx = [];
-		this.pathSels = [];
-		//window.clearInterval(this.intCode);
-		//this.pathwalkers.filter(function(o) {if (o) o.stop().remove();});
-		//this.pathwalkers = [];
+	clearLinkerSels : function() {
+		this.linkerSels = this.linkerSels.filter(function(l) {l.dehighlight(); return false;});
 	},
 	removePathSels : function() {
-		this.pathSels.filter(function(a) {a.remove();});
-		this.clearPathSels();
+		this.linkerSels.filter(function(a) {a.remove();});
+		this.clearLinkerSels();
 	},
 	destroy : function() {
 		$(document).off('click', this.documentClickListener);
@@ -4825,7 +4738,7 @@ Ext.define('GraphicDesigner.SelectionModel', {
 		});
 		canvasPanel.on('viewclicked', function(view) {
 			canvasPanel.fireLastCanvasClick();
-			me.clearPathSels();
+			me.clearLinkerSels();
 
 			var toDesels = [];
 			var toSels = [view];
@@ -4958,7 +4871,7 @@ Ext.define('GraphicDesigner.SelectionModel', {
 		});
 	},
 	clearSelection : function() {
-		this.clearPathSels();
+		this.clearLinkerSels();
 		this.ownerCt.views.filter(function(view) {
 			//hide em
 
@@ -4974,7 +4887,7 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			if (view.selected) arr.push(view);
 		});
 
-		return arr.concat(this.pathSels);
+		return arr.concat(this.linkerSels);
 	}
 });
 

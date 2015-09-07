@@ -50,6 +50,12 @@ you can watch this project, any suggestion is appreciated!
 
 Update log
 -----------
+>2015-09-08
+>
+>yes! linkers now can b adjusted!
+>linker arrow can be re dragged!
+>multi selection model has some problem,workin on it!
+
 >2015-09-05
 >
 >cheers! linker algrithm is completed!
