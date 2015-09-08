@@ -7,12 +7,13 @@ recently im developing a Graphic Designer based on ExtJs4.2.x&jQuery&raphael.i t
 there're lots of familiar designers throughout the web.
 But,u really should look at this,it's very friendly with ur BUSINESS!
     
+	> want to build an online visio application?
+	yes,ITSELF is!
 	> want to draw a workflow template?
-	NO PROBLEM!
+	it provides complex validations by extra!
 	> want to build up a form designer?
-	NO PROBLEM!
-	> when users commit their diagrams but you donot accept that is invalid?(i.e. validate diagram)?
-	NO PROBLEM!
+	it can do it excellently!(you can not only find a for designer here, 
+		but also a designation->real form instance here!)
   
 Graphic Designer has a well-designed mechanism of 'DELEGATE(like plugin)',
 when u want 2 add new behaviors 2 a view(i.e. circle/rect/text/path and so on),just write a customized delegate 4 it,and wire it with the view which u want 2 do this!
