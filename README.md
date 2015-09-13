@@ -51,6 +51,12 @@ you can watch this project, any suggestion is appreciated!
 
 Update log
 -----------
+
+>2015-09-14
+>
+>bravo!style bar completed!
+>multi selection's performance has improved,more efficient!(& bug fixed)
+
 >2015-09-08
 >
 >yes! linkers now can b adjusted!

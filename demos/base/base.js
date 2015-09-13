@@ -14,8 +14,10 @@ Ext.onReady(function() {
 				},
 				text : 'hi,there!'
 			}],
-			tbar : {
+			dockedItems : [{
 				cls : 'toolbar-shadow',
+				xtype : 'toolbar',
+				dock : 'top',
 				items : [{
 					xtype : 'checkbox',
 					boxLabel : 'Constraint',
@@ -104,7 +106,13 @@ Ext.onReady(function() {
 						}).show();
 					}
 				}]
-			},
+			}, {
+				xtype : 'gdtoolbar',
+				dock : 'top',
+				getCanvasPanel : function() {
+					return this.ownerCt;
+				}
+			}],
 			region : 'center'
 		}]
 	});
