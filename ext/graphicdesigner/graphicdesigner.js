@@ -508,6 +508,27 @@ GraphicDesigner.translateHexColorFromRgb = function(rgb) {
 	return "#" + hex(rgb[1]) + hex(rgb[2]) + hex(rgb[3]);
 }
 
+Ext.define('GraphicDesigner.SymbolNumberField', {
+	extend : 'Ext.form.field.Number',
+	xtype : 'gdsymbolnumberfield',
+	symbol : '%',
+	afterRender : function() {
+		$(this.inputEl.dom).parent().css({
+			position : 'relative'
+		});
+		var symb = $('<span>' + this.symbol + '</span>');
+		symb.css({
+			position : 'absolute',
+			color : '#50504F',
+			top : '3px',
+			right : '3px'
+		});
+		$(this.inputEl.dom).after(symb);
+
+		this.callParent();
+	}
+});
+
 //depends on extjs&jquery&raphael
 //----------------------------canvas panel------------------------------------------
 Ext.define('GraphicDesigner.CanvasPanel', {
@@ -810,7 +831,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 				if (event.keyCode == 8) {
 					if (['INPUT', 'TEXTAREA'].indexOf(event.srcElement.tagName) == -1) {
 						event.preventDefault();
-						me.selModel ? me.selModel.removePathSels() : null;
+						me.selModel ? me.selModel.removeLinkerSels() : null;
 					} else {
 						return;
 					}
@@ -997,7 +1018,7 @@ Ext.define('GraphicDesigner.ShortcutController', {
 	extend : 'Ext.Component',
 	xtype : 'gdshortcutcontroller',
 	//each element in shortcuts should b in format like:
-	//{'ctrl+p' : function(canvasPanel) {...}} {'l' : func...} {'ctrl+alt+shift+s': func...}
+	//{'ctrl+p' : function(canvasPanel, e) {...}} {'l' : func...} {'ctrl+alt+shift+s': func...}
 	//remember:1.ctrl 2.alt 3.shift 4.charcter
 	shortcutMap : {},
 	build : function() {
@@ -1096,14 +1117,14 @@ Ext.define('GraphicDesigner.ShortcutController', {
 
 		this.owner.on('keydown', function(e) {
 			var keyarr = [];
-			if (e.ctrlKey) keyarr.push('ctrl');
+			if (e.ctrlKey || e.metaKey) keyarr.push('ctrl');
 			if (e.altKey) keyarr.push('alt');
 			if (e.shiftKey) keyarr.push('shift');
 
 			keyarr.push(String.fromCharCode(e.keyCode));
 
 			var func = scs[keyarr.join('+')];
-			func ? func(this) : null;
+			func ? func(this, e) : null;
 		});
 	},
 	destroy : function() {
@@ -1150,12 +1171,21 @@ Ext.define('GraphicDesigner.View', {
 	getCustomDescription : Ext.emptyFn,
 	restoreCustomDescription : Ext.emptyFn,
 	//private
+	updateStyle : function() {
+		this.set.attr({
+			fill : this.style.fill,
+			'fill-opacity' : this.style.fillOpacity,
+			opacity : this.style.opacity,
+			'stroke-width' : this.style.lineWidth,
+			stroke : this.style.lineColor,
+			'stroke-dasharray' : this.style.lineStyle
+		});
+	},
 	addDelegate : function(dl) {
 		dl = Ext.widget(dl);
 		dl.wireView(this);
 		this.otherDelegates.push(dl);
 	},
-	getMoreGraphicDescription : Ext.emptyFn,
 	//end private
 	getFrame : function() {
 		if (this.frame) return this.frame;
@@ -1214,6 +1244,17 @@ Ext.define('GraphicDesigner.View', {
 	},
 	buildUI : function(paper) {
 		this.set = paper.add(this.shapes);
+
+		this.style = Ext.apply({
+			opacity : 1,
+			fill : '#ffffff',
+			fillOpacity : 1,
+			lineColor : '#000000',
+			lineWidth : 2,
+			lineStyle : ''
+		}, this.style);
+
+		this.updateStyle();
 		this.afterViewBuilt();
 
 		this.afterRender();
@@ -1268,7 +1309,7 @@ Ext.define('GraphicDesigner.View', {
 	afterViewBuilt : Ext.emptyFn,
 	//do not override this!
 	getGraphicDescription : function() {
-		var o = Ext.apply({
+		return Ext.apply({
 			typeName : Ext.getClassName(this),
 			viewId : this.viewId,
 			frame : Ext.clone(this.frame),
@@ -1276,10 +1317,10 @@ Ext.define('GraphicDesigner.View', {
 			minH : this.minH,
 			text : this.labelDelegate ? this.labelDelegate.text : '',
 			linkers : this.linkDelegate ? this.linkDelegate.getLinkersData() : null,
-			zIndex : this.zIndex
+			zIndex : this.zIndex,
+			style : this.style,
+			labelStyle : this.labelDelegate ? this.labelDelegate.style : null
 		}, this.getCustomDescription());
-
-		return Ext.applyIf(o, this.getMoreGraphicDescription());
 	},
 	findDelegateBy : function(fn) {
 		return this.otherDelegates.filter(fn);
@@ -1448,20 +1489,15 @@ Ext.define('GraphicDesigner.View', {
 		this.inspectorDelegate ? this.inspectorDelegate.bbEvent('destroy', []) : null;
 
 		this.destroyed = true;
+		if (this.selected) {
+			this.ownerCt.selModel ? this.ownerCt.selModel.fireEvent('selectionchange') : null;
+		}
 	}
 });
 
 Ext.define('GraphicDesigner.Circle', {
 	extend : 'GraphicDesigner.View',
 	xtype : 'gdcircle',
-	fill : 'white',
-	'fill-opacity' : 1,
-	getMoreGraphicDescription : function() {
-		return {
-			fill : this.fill,
-			'fill-opacity' : this['fill-opacity']
-		};
-	},
 	getDefaultFrame : function() {
 		return {
 			x : 50,
@@ -1493,8 +1529,6 @@ Ext.define('GraphicDesigner.Circle', {
 	buildUI : function(paper) {
 		this.shapes = [{
 			type : 'ellipse',
-			fill : this.fill,
-			'fill-opacity' : this['fill-opacity'],
 			'stroke-width' : 2
 		}];
 
@@ -1519,8 +1553,6 @@ Ext.define('GraphicDesigner.Circle', {
 Ext.define('GraphicDesigner.Pool', {
 	extend : 'GraphicDesigner.View',
 	xtype : 'gdpool',
-	fill : 'white',
-	'fill-opacity' : 1,
 	minH : 90,
 	getPreview : function(frame) {
 		var w = Math.min(frame.height, frame.width);
@@ -1541,12 +1573,6 @@ Ext.define('GraphicDesigner.Pool', {
 			type : 'path',
 			path : 'M' + fromx + ',' + (frame.y + 20) + 'H' + (fromx + w)
 		}];
-	},
-	getMoreGraphicDescription : function() {
-		return {
-			fill : this.fill,
-			'fill-opacity' : this['fill-opacity']
-		};
 	},
 	getDefaultFrame : function() {
 		return {
@@ -1570,12 +1596,31 @@ Ext.define('GraphicDesigner.Pool', {
 		});
 
 	},
+	updateStyle : function() {
+		this.set.attr({
+			opacity : this.style.opacity
+		});
+		this.set[0].attr({
+			fill : this.style.fill,
+			'fill-opacity' : this.style.fillOpacity
+		});
+
+		this.set[1].attr({
+			'stroke-width' : this.style.lineWidth,
+			stroke : this.style.lineColor,
+			'stroke-dasharray' : this.style.lineStyle
+		});
+		this.set[2].attr({
+			'stroke-width' : this.style.lineWidth,
+			stroke : this.style.lineColor,
+			'stroke-dasharray' : this.style.lineStyle
+		});
+
+	},
 	buildUI : function(paper) {
 		this.shapes = [{
 			type : 'rect',
-			'stroke-width' : 0,
-			'fill-opacity' : this['fill-opacity'],
-			fill : this.fill
+			'stroke-width' : 0
 		}, {
 			type : 'rect',
 			'stroke-width' : 2
@@ -1683,9 +1728,7 @@ Ext.define('GraphicDesigner.HPool', {
 	buildUI : function(paper) {
 		this.shapes = [{
 			type : 'rect',
-			'stroke-width' : 0,
-			'fill-opacity' : this['fill-opacity'],
-			fill : this.fill
+			'stroke-width' : 0
 		}, {
 			type : 'rect',
 			'stroke-width' : 2
@@ -1702,7 +1745,7 @@ Ext.define('GraphicDesigner.HPool', {
 			xtype : 'gdlabeldelegate',
 			text : this.text,
 			getTransform : function() {
-				var frame = this.getTextRect();
+				var frame = this.view.frame;
 				return {
 					angle : -90,
 					cx : frame.x + frame.width / 2,
@@ -1711,11 +1754,12 @@ Ext.define('GraphicDesigner.HPool', {
 			},
 			getTextRect : function() {
 				var rect = this.view.frame;
+				var center = GraphicDesigner.getCenter(rect);
 				return {
-					x : rect.x,
-					y : rect.y,
-					width : 40,
-					height : rect.height
+					x : center.x - rect.height / 2,
+					y : center.y - rect.width / 2,
+					width : rect.height,
+					height : 40
 				};
 			}
 		});
@@ -1754,15 +1798,6 @@ Ext.define('GraphicDesigner.HPool', {
 Ext.define('GraphicDesigner.Rect', {
 	extend : 'GraphicDesigner.View',
 	xtype : 'gdrect',
-	fill : 'white',
-	'fill-opacity' : 1,
-	'stroke-width' : 2,
-	getMoreGraphicDescription : function() {
-		return {
-			fill : this.fill,
-			'fill-opacity' : this['fill-opacity']
-		};
-	},
 	getDefaultFrame : function() {
 		return {
 			x : 50,
@@ -1788,9 +1823,7 @@ Ext.define('GraphicDesigner.Rect', {
 	buildUI : function(paper) {
 		this.shapes = [{
 			type : 'rect',
-			fill : this.fill,
-			'fill-opacity' : this['fill-opacity'],
-			'stroke-width' : this['stroke-width']
+			'stroke-width' : 2
 		}];
 
 		this.callParent(arguments);
@@ -3253,7 +3286,9 @@ function GDLinker(src) {
 
 	this.saveToLinkends = function() {
 		//store data...
-		this.src.linkend ? this.src.linkend.data('outlinkers').push(this) : null;
+		if (this.src.linkend && this.src.linkend.data('outlinkers').indexOf(this) == -1) {
+			this.src.linkend.data('outlinkers').push(this);
+		}
 		this.target.linkend ? this.target.linkend.data('inlinkers').push(this) : null;
 	}
 
@@ -3517,6 +3552,9 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 					}).delay(100);
 				}
 			},
+			resizestart : function() {
+				this.ownerCt.selModel ? this.ownerCt.selModel.clearLinkerSels() : null;
+			},
 			selected : function() {
 				me.set.toFront().show();
 			},
@@ -3607,8 +3645,67 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 	editable : true,
 	textElement : null,
 	text : '',
-	'font-size' : '16px',
 	//override it!
+	updateStyle : function() {
+		this.textElement.attr({
+			'font-size' : this.style.fontSize,
+			'font-weight' : this.style.fontWeight,
+			'font-family' : this.style.fontFamily,
+			'font-style' : this.style.fontStyle,
+			fill : this.style.color
+		});
+
+		$(this.textElement.node).attr('text-decoration', this.style.textDecoration);
+
+		this.textHolder.css({
+			'font-size' : this.style.fontSize,
+			'font-weight' : this.style.fontWeight,
+			'font-family' : this.style.fontFamily,
+			'font-style' : this.style.fontStyle,
+			color : this.style.color,
+			'text-decoration' : this.style.textDecoration,
+			'text-align' : this.style.align,
+			'vertical-align' : this.style.valign
+		});
+		this.layoutElements();
+	},
+	layoutElements : function() {
+		var rect = this.getTextRect();
+
+		this.textElement.attr('transform', '');
+		var x = null;
+		switch (this.style.align) {
+			case 'left' :
+				this.textElement.attr('text-anchor', 'start');
+				x = rect.x + 1;
+				break;
+			case 'right' :
+				this.textElement.attr('text-anchor', 'end');
+				x = rect.x + rect.width - 1;
+				break;
+			default :
+				this.textElement.attr('text-anchor', 'middle');
+				x = rect.x + rect.width / 2
+		}
+		var y = null;
+		switch (this.style.valign) {
+			case 'top' :
+				y = rect.y + this.textElement.getBBox().height / 2 + 1;
+				break;
+			case 'bottom' :
+				y = rect.y + rect.height - this.textElement.getBBox().height / 2 - 1;
+				break;
+			default :
+				y = rect.y + rect.height / 2
+		}
+
+		this.textElement.attr({
+			x : x,
+			y : y,
+			transform : this.getTransformStr()
+		});
+
+	},
 	getTransform : Ext.emptyFn,
 	getTextRect : function() {
 		return {
@@ -3618,15 +3715,17 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 			height : 20
 		};
 	},
-	textHolder : null,
+	buildTextHolder : function() {
+		this.textHolder = $('<input type="text" />').hide();
+	},
 	buildDelegate : function() {
 		var me = this;
+		if (this.view.labelStyle) {
+			this.style = this.view.labelStyle;
+			delete this.view.labelStyle;
+		}
 
-		this.textElement = this.view.set.paper.text(0, 0, '_')
-			.attr({
-				'font-size' : this['font-size'],
-				'font-family' : 'STHeitiSC-Light, Helvetica, SimSun, Microsoft YaHei'
-			}).drag(function(dx, dy, x, y, e) {
+		this.textElement = this.view.set.paper.text(0, 0, '_').drag(function(dx, dy, x, y, e) {
 				me.view.fireEvent('dragmoving', dx, dy, x, y, e);
 			}, function(x, y ,e) {
 				if (e.button == 2) {
@@ -3645,17 +3744,15 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 				me.view.fireEvent('unhover');
 			}).click(function(e) { e.stopPropagation();});
 
-		this.layoutTextElement();
 		this.setText(this.text);
 
-		this.textHolder = $('<input type="text" />').hide();
+		this.buildTextHolder();
 		$(this.view.set.paper.canvas).after(this.textHolder);
 		this.textHolder.css({
 			position : 'absolute',
 			'background-color' : 'transparent',
 			'border' : '2px solid #F7DDAA',
-			'border-radius' : 1,
-			'text-align' : 'center'
+			'border-radius' : 2
 		}).blur(function() {
 			me.endEdit();
 		}).keydown(function(e) {
@@ -3669,6 +3766,18 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		}).mouseup(function(e) {
 			GraphicDesigner.suspendClick();
 		});
+
+		this.style = Ext.apply({
+			fontSize : '13px',
+			fontFamily : 'Arial',
+			fontWeight : 'normal',
+			fontStyle : 'normal',
+			textDecoration : 'normal',
+			color : '#000000',
+			align : 'center',
+			valign : 'middle'
+		}, this.style);
+		this.updateStyle();
 
 	},
 	tabNext : function() {
@@ -3708,7 +3817,8 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 					return;
 				}
 
-				if (me.editable && e.keyCode == 13) {
+				if (me.editable && e.keyCode == 32) {
+					e.preventDefault();
 					me.startEdit();
 				}
 			},
@@ -3721,7 +3831,7 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 					me.textElement.show();
 				}
 
-				me.layoutTextElement();
+				me.layoutElements();
 			}
 		};
 	},
@@ -3731,18 +3841,10 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 	},
 	//private
 	getTransformStr : function() {
-		var o = this.getTransform();
+		var o = this.getTransform();//angle cx cy
 		if (!o) return null;
 
-		return 'r' + o.angle + (o.cx ? ',' + o.cx : '') + (o.cy ? ',' + o.cy : '');
-	},
-	layoutTextElement : function() {
-		var rect = this.getTextRect();
-		this.textElement.attr({
-			x : rect.x + rect.width / 2,
-			y : rect.y + rect.height / 2,
-			transform : this.getTransformStr()
-		});
+		return 'r' + o.angle + ',' + o.cx + ',' + o.cy;
 	},
 	cancelEdit : function() {
 		this.textHolder.val(this.text).blur();
@@ -3750,24 +3852,31 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 	startEdit : function() {
 		if (!this.editable) return;
 		this.textElement.hide();
-
+		//layout text holder 1st!
 		var rect = this.getTextRect();
 		var position = $(this.view.ownerCt.paper.canvas).position();
-		this.textHolder.css(this.textElement.attrs).css({
-			left : rect.x + position.left,
-			top : rect.y + position.top,
-			width : rect.width,// $(this.textElement.node).width()),
-			height : rect.height,//, $(this.textElement.node).height())
-			cursor : 'text'
-		}).show().val(this.text).select();
+		this.textHolder.css({
+			left : position.left + rect.x,
+			top : position.top + rect.y,
+			width : rect.width,
+			height : rect.height
+		});
 
-		//var o = this.getTransform();
-		//if (o) {
-		//	this.textHolder.rotate({
-		//		angle : o.angle,
-		//		center : [o.cx, o.cy]
-		//	});
-		//}
+		var transform = this.getTransform();
+		if (transform) {
+			//simulate a bbox!
+			var testRect = this.view.set.paper.rect(rect.x, rect.y, rect.width, rect.height).hide();
+			var bx = testRect.transform(this.getTransformStr()).getBBox();
+			this.textHolder.css({
+				left : position.left + bx.cx - rect.width / 2,
+				top : position.top + bx.cy - rect.height / 2
+			}).rotate({
+				angle : transform.angle,
+				center: [bx.cx, bx.cy]
+			});
+			testRect.remove();
+		}
+		this.textHolder.show().val(this.text).select();
 
 		GraphicDesigner.viewEditing = true;
 		this.view.editing = true;
@@ -3799,49 +3908,8 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 Ext.define('GraphicDesigner.MultilineLabelDelegate', {
 	extend : 'GraphicDesigner.LabelDelegate',
 	xtype : 'gdmultilinelabeldelegate',
-	buildDelegate : function() {
-		var me = this;
-
-		this.textElement = this.view.set.paper.text(0, 0, '_')
-			.attr({
-				'font-size' : this['font-size']
-			}).drag(function(dx, dy, x, y, e) {
-				me.view.fireEvent('dragmoving', dx, dy, x, y, e);
-			}, function(x, y ,e) {
-				me.view.fireEvent('dragstart', x, y, e);
-				me.view.ownerCt.fireEvent('viewclicked', me.view);
-			}, function(e) {
-				me.view.fireEvent('dragend', e);
-			}).hover(function() {
-				me.view.fireEvent('hover');
-			}, function() {
-				me.view.fireEvent('unhover');
-			}).click(function(e) { e.stopPropagation();});
-
-		this.layoutTextElement();
-		this.setText(this.text);
-
-		//this.view.set.push(this.textElement);
-
+	buildTextHolder : function() {
 		this.textHolder = $('<textarea style="resize:none;outline:none;" />').hide();
-		$(this.view.set.paper.canvas).after(this.textHolder);
-		this.textHolder.css({
-			position : 'absolute',
-			'background-color' : 'transparent',
-			'border' : '2px solid #F7DDAA',
-			'border-radius' : 1,
-			'text-align' : 'center'
-		}).blur(function() {
-			me.endEdit();
-		}).keydown(function(e) {
-			if (e.keyCode == 27) {
-				me.cancelEdit();
-				return;
-			}
-			if ((e.keyCode == 13 && e.shiftKey) || e.keyCode == 9) me.endEdit();
-			if (e.keyCode == 9) me.tabNext();
-		});
-
 	}
 });
 
@@ -4084,6 +4152,7 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 			me.view.fireEvent('resize', rect, this.data('spec'), minX, minY, maxW, maxH);
 		}, function() {
 			this.obox = me.view.frame;
+			me.view.fireEvent('resizestart');
 		}, function(e) {
 			delete this.obox;
 			me.view.fireEvent('resizeend');
@@ -4531,9 +4600,9 @@ Ext.define('GraphicDesigner.DockDelegate', {
 				} else {
 					//detect x |-|
 					Ext.each(cp.detectViewsByRect({
-						x : frame.x - 6,
+						x : frame.x - 2,
 						y : -9999999,
-						width : frame.width + 12,
+						width : frame.width + 4,
 						height : 20999998
 					}, null, function(v) { return v != thisview && v.dockDelegate != null;}), function(v) {
 						//check bound docker first!
@@ -4595,9 +4664,9 @@ Ext.define('GraphicDesigner.DockDelegate', {
 				} else {
 					Ext.each(cp.detectViewsByRect({
 						x : -9999999,
-						y : frame.y - 6,
+						y : frame.y - 2,
 						width : 20999998,
-						height : frame.height + 12
+						height : frame.height + 4
 					}, null, function(v) { return v != thisview && v.dockDelegate != null;}), function(v) {
 						//detect y 工
 						var found = false;
@@ -4708,11 +4777,14 @@ Ext.define('GraphicDesigner.SelectionModel', {
 	selectLinker : function(linker) {
 		linker.highlight();
 		this.linkerSels.push(linker);
+		this.fireEvent('selectionchange');
 	},
 	clearLinkerSels : function() {
+		if (this.linkerSels.length == 0) return;
 		this.linkerSels = this.linkerSels.filter(function(l) {l.dehighlight(); return false;});
+		this.fireEvent('selectionchange');
 	},
-	removePathSels : function() {
+	removeLinkerSels : function() {
 		this.linkerSels.filter(function(a) {a.remove();});
 		this.clearLinkerSels();
 	},
@@ -4753,13 +4825,16 @@ Ext.define('GraphicDesigner.SelectionModel', {
 				v.fireEvent('deselected');
 			});
 
+			var selflag = false;
 			toSels.filter(function(v) {
 				if (!v.selected) {
+					selflag = true;
 					v.selected = true;
 					v.fireEvent('selected');
 				}
 			});
 
+			if (toDesels.length || selflag) me.fireEvent('selectionchange');
 		});
 
 		this.bindRegionSelection(canvasPanel);
@@ -4774,9 +4849,16 @@ Ext.define('GraphicDesigner.SelectionModel', {
 		var canvasoff = null;
 		var pleft = 0;
 		var ptop = 0;
+		var startOffset = null;
 		var mousemoveL = function(e) {
 			var x = e.pageX;
 			var y = e.pageY;
+
+			if (e.buttons == 0) {
+				//cancelled
+				mouseupL.apply(this, [e]);
+				return;
+			}
 
 			var off = canvasoff;
 			var frame = finalSelFrame = {
@@ -4786,22 +4868,26 @@ Ext.define('GraphicDesigner.SelectionModel', {
 				height : Math.abs(startPoint.y - y)
 			};
 
-			selectregion ? selectregion.remove() : null;
-			selectregion = $('<div class="gd-selmodel-selector"></div>').width(frame.width).height(frame.height).css({
+			if (!selectregion) {
+				selectregion = $('<div class="gd-selmodel-selector"></div>');
+				canvasPanel.container.append(selectregion);
+			}
+
+			selectregion.width(frame.width).height(frame.height).css({
 				left : frame.x + 'px',
 				top : frame.y + 'px'
 			});
 
-			canvasPanel.container.append(selectregion);
-
 		};
 		var mouseupL = function(e) {
-			if (!finalSelFrame) return;
 			startPoint = null;
 			delete GraphicDesigner.selecting;
-			$(this).off('mouseup', mouseupL);
-			$(this).off('mousemove', mousemoveL);
-			selectregion ? selectregion.fadeOut(200, function() { $(this).remove();}) : null;
+			$(document.body).off('mouseup', mouseupL);
+			$(document.body).off('mousemove', mousemoveL);
+			canvasPanel.container.parent().parent().parent().off('scroll', scrollL);
+			selectregion ? selectregion.remove() : null;
+			selectregion = null;
+			if (!finalSelFrame) return;
 
 			GraphicDesigner.suspendClick();
 			//select views.
@@ -4810,23 +4896,37 @@ Ext.define('GraphicDesigner.SelectionModel', {
 
 			//try 2 select views
 			var frame = finalSelFrame;
+			finalSelFrame = null;
 			frame.x = frame.x + pleft;
 			frame.y = frame.y + ptop;
 
 			frame.x2 = frame.x + frame.width;
 			frame.y2 = frame.y + frame.height;
-			Ext.each(canvasPanel.views, function(view) {
-				if (Raphael.isBBoxIntersect(frame, view.set.getBBox())) {
-					if (!view.selected) {
-						view.selected = true;
-						view.fireEvent('selected');//TODO fire multi selection event!
+
+			new Ext.util.DelayedTask(function(){
+				Ext.each(canvasPanel.views, function(view) {
+					var selflag = false;
+					if (Raphael.isBBoxIntersect(frame, view.set.getBBox())) {
+						if (!view.selected) {
+							view.selected = true;
+							selflag = true;
+							view.fireEvent('selected');//TODO fire multi selection event!
+						}
 					}
-				}
-			});
+					if (selflag) me.fireEvent('selectionchange');
+				});
+			}).delay(1);
 
 		};
+		var scrollL = function(e) {
+			//GraphicDesigner.suspendClick();
+			//e.stopPropagation();
+			//e.preventDefault();
+			//mouseupL.apply(document.body, [e]);
+		}
 		var mousedownL = function(e) {
 			if (e.button != 0 || GraphicDesigner.viewEditing || canvasPanel.viewonly) return;
+			if (['PATH', 'TEXT', 'RECT', 'CIRCLE', 'IMAGE'].indexOf(e.target.tagName.toUpperCase()) != -1) return;
 			//clear selections
 			me.clearSelection();
 
@@ -4847,39 +4947,51 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			pleft = p3.left - p2.left - p1.left;
 			ptop = p3.top - p2.top - p1.top;
 
-			$(this).mousemove(mousemoveL);
-			$(this).mouseup(mouseupL);
+			canvasPanel.container.parent().parent().parent().scroll(scrollL);
+			$(document.body).mousemove(mousemoveL);
+			$(document.body).mouseup(mouseupL);
 		};
 		$(canvasPanel.container).mousedown(mousedownL);
 	},
 	select : function(views) {
 		this.ownerCt.fireLastCanvasClick();
+
+		var selflag = false;
 		views.filter(function(v) {
 			if (!v.selected) {
+				selflag = true;
 				v.selected = true;
 				v.fireEvent('selected');
 			}
 		});
+		if (selflag) this.fireEvent('selectionchange');
 	},
 	deselect : function(views) {
 		this.ownerCt.fireLastCanvasClick();
+		var deselflag = false;
 		views.filter(function(v) {
 			if (v.selected) {
+				deselflag = true;
 				v.selected = false;
 				v.fireEvent('deselected');
 			}
 		});
+
+		if (deselflag) this.fireEvent('selectionchange');
 	},
 	clearSelection : function() {
 		this.clearLinkerSels();
+
+		var deselflag = false;
 		this.ownerCt.views.filter(function(view) {
 			//hide em
-
 			if (view.selected) {
+				deselflag = true;
 				view.selected = false;
 				view.fireEvent('deselected');
 			}
 		});
+		if (deselflag) this.fireEvent('selectionchange');
 	},
 	getSelections : function() {
 		var arr = [];
@@ -5221,8 +5333,8 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 	},
 	infoPanelVisible : false,
 	inspectors : [{
-		//	xtype : 'gdinspector'
-		//}, {
+	//	xtype : 'gdinspector'
+	//}, {
 		xtype : 'gdcanvasinfoinspector'
 	}, {
 		xtype : 'gdframeinfoinspector'
@@ -5281,7 +5393,7 @@ Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 		}
 	}
 });
-//------------inspectors---------------
+				//------------inspectors---------------
 Ext.define('GraphicDesigner.Inspector', {
 	xtype : 'gdinspector',
 	extend : 'Ext.button.Button',
@@ -5475,8 +5587,8 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 	initComponent : function() {
 		var me = this;
 		this.panelSize = {
-			width : 200,
-			height : 120
+			width : 230,
+			height : 110
 		}
 		this.panelConfig = {
 			layout : 'vbox',
@@ -5490,11 +5602,12 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 					html : this.labels[0],
 					style : 'width:20px;'
 				}, {
-					xtype : 'numberfield',
+					xtype : 'gdsymbolnumberfield',
+					symbol : 'px',
 					step : 5,
 					scope : 'x',
 					value : 0,
-					width : 65,
+					width : 80,
 					listeners : {
 						change : function(f, v) {
 							me.view.frame.x = this.getValue();
@@ -5507,11 +5620,12 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 					html : this.labels[2],
 					style : 'width:20px;margin-left:10px;'
 				}, {
-					xtype : 'numberfield',
+					xtype : 'gdsymbolnumberfield',
+					symbol : 'px',
 					step : 5,
 					scope : 'w',
 					value : 20,
-					width : 65,
+					width : 80,
 					listeners : {
 						change : function(f, v) {
 							var ct = me.ownerCt.owner;
@@ -5531,11 +5645,12 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 					html : this.labels[1],
 					style : 'width:20px;'
 				}, {
-					xtype : 'numberfield',
+					xtype : 'gdsymbolnumberfield',
+					symbol : 'px',
 					step : 5,
 					scope : 'y',
 					value : 0,
-					width : 65,
+					width : 80,
 					listeners : {
 						change : function(f, v) {
 							me.view.frame.y = this.getValue();
@@ -5548,11 +5663,12 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 					html : this.labels[3],
 					style : 'width:20px;margin-left:10px;'
 				}, {
-					xtype : 'numberfield',
+					xtype : 'gdsymbolnumberfield',
+					symbol : 'px',
 					step : 5,
 					scope : 'h',
 					value : 20,
-					width : 65,
+					width : 80,
 					listeners : {
 						change : function(f, v) {
 							var ct = me.ownerCt.owner;
@@ -5577,4 +5693,556 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 	}
 });
 
+//=======================================style toolbar===========================
+Ext.define('GraphicDesigner.ColorPickerButton', {
+	extend : 'Ext.Button',
+	xtype : 'gdcolorpickerbutton',
+	getText : function() {
+		return '<span class="gdicon-color_lens"></span>';
+	},
+	doSetColor : function(color) {},
+	initComponent : function() {
+		var me = this;
+
+		this.text = '<div style="height:16px;position:relative;overflow:hidden;">' + this.getText() + '<br /><div class="gd-style-font-color-indicator"></div></div>';
+		this.menu = {
+			plain : true,
+			closeAction : 'hide',
+			items : [{
+				xtype : 'colorpicker',
+				listeners : {
+					select : function(c, color) {
+						this.ownerCt.close();
+						me.updateColor(color);
+						me.doSetColor(color);
+					},
+					afterRender : function() {
+						var c = this;
+						$(this.el.dom).find('a.x-color-picker-item').hover(function() {
+							var color = GraphicDesigner.translateHexColorFromRgb($(this).find('span').css('background-color'));
+							$(c.nextSibling().el.dom).find('.gd-style-color-input').val(color.substring(1));
+						}, function() {
+							$(c.nextSibling().el.dom).find('.gd-style-color-input').val(me.currentColor);
+						});
+					}
+				}
+			}, {
+				xtype : 'panel',
+				bodyPadding : 2,
+				html : '&nbsp;#<input class="gd-style-color-input" value="' + (me.currentColor ? me.currentColor : '000000') + '" />',
+				listeners : {
+					afterRender : function() {
+						$(this.el.dom).find('.gd-style-color-input').keydown(function(e) {
+							e.stopPropagation();
+							if ([8, 37, 38, 39, 40].indexOf(e.keyCode) != -1) return;
+
+							if ((e.keyCode >= 'a'.charCodeAt() && e.keyCode <= 'f'.charCodeAt()) ||
+								(e.keyCode >= 'A'.charCodeAt() && e.keyCode <= 'F'.charCodeAt()) ||
+								(e.keyCode >= '0'.charCodeAt() && e.keyCode <= '9'.charCodeAt())) {
+								if ($(this).val().length == 6) e.preventDefault();
+							} else {
+								if (!e.metaKey && !e.ctrlKey) e.preventDefault();
+							}
+						}).keyup(function(e) {
+							if (e.keyCode == 13) {
+								var color = $(this).val();
+								if (color.length != 6) return;
+								var valid = true;
+
+								for (var i = 0; i < color.length; i++) {
+									var c = color[i].toLowerCase();
+									if ((c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) continue;
+									valid = false;
+									break;
+								};
+
+								if (valid) {
+									me.updateColor(color);
+									me.doSetColor(color);
+								}
+							}
+						});
+					}
+				}
+			}]
+		};
+
+		this.callParent();
+	},
+	updateColor : function(color) {
+		$(this.el.dom).find('.gd-style-font-color-indicator').css({
+			'background-color' : '#' + color
+		});
+
+		this.currentColor = color;
+		if (this.menu.el) {
+			$(this.menu.el.dom).find('.gd-style-color-input').val(color);
+		}
+	}
+});
+
+Ext.define('GraphicDesigner.SelectCombo', {
+	extend : 'Ext.Button',
+	xtype : 'gdselectcombo',
+	//item in items should b in format as a menuitem:
+	items : [],
+	checkIconCls : 'gdicon-checkmark',
+	//args menuitem
+	handleItem : Ext.emptyFn,
+	initComponent : function() {
+		var me = this;
+		var handler = function() {
+			Ext.each(this.ownerCt.query('*[iconCls="gdicon-checkmark"]'), function(mi) {
+				mi.setIconCls('x');
+			});
+			this.setIconCls(me.checkIconCls);
+			me.handleItem(this);
+		}
+
+		Ext.each(this.items, function(item) {
+			if (!item.iconCls) item.iconCls = 'x';
+			if (!item.handler) item.handler = handler;
+		});
+
+		this.menu = this.items;
+		delete this.items;
+
+		this.callParent();
+	}
+});
+
+Ext.define('GraphicDesigner.Toolbar', {
+	extend : 'Ext.toolbar.Toolbar',
+	xtype : 'gdtoolbar',
+	cls : 'gd-toolbar',
+	getCanvasPanel : Ext.emptyFn,
+	initComponent : function() {
+		var me = this;
+
+		var alignHandler = function(btn, pressed) {
+			var key = this.key;
+			var value = this.value;
+			Ext.each(me.selections, function(v) {
+				if (v.labelDelegate) {
+					v.labelDelegate.style[key] = value;
+					v.labelDelegate.updateStyle();
+				}
+			});
+		}
+		var alignUpdateSels = function(sels) {
+			if (sels.length > 1) return;
+
+			this.suspendEvents(false);
+			this.toggle(sels[0].labelDelegate.style[this.key] == this.value);
+			this.resumeEvents();
+		}
+
+		this.items = [{
+			xtype : 'gdselectcombo',
+			width : 100,
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+
+				var rec = this.menu.query('*[fontFamily="' + sels[0].labelDelegate.style.fontFamily + '"]')[0];
+				this.setText(rec.text);
+				Ext.each(this.ownerCt.query('*[iconCls="gdicon-checkmark"]'), function(mi) {
+					mi.setIconCls('x');
+				});
+				rec.setIconCls('gdicon-checkmark');
+			},
+			handleItem : function(item) {
+				var ff = item.fontFamily;
+				this.setText(item.text);
+				Ext.each(me.selections, function(v) {
+					if (v.labelDelegate) {
+						v.labelDelegate.style.fontFamily = ff;
+						v.labelDelegate.updateStyle();
+					}
+				});
+			},
+			text : '<span style="font-family:Arial;">Arial</span>',
+			items : [{
+				fontFamily : 'Arial',
+				text : '<span style="font-family:Arial;">Arial</span>'
+			}, {
+				fontFamily : 'Helvetica',
+				text : '<span style="font-family:Helvetica;">Helvetica</span>'
+			}, {
+				iconCls : 'x',
+				fontFamily : 'Courier New',
+				text : '<span style="font-family:Courier New;">Courier New</span>'
+			}, {
+				fontFamily : 'Verdana',
+				text : '<span style="font-family:Verdana;">Verdana</span>'
+			}, {
+				iconCls : 'x',
+				fontFamily : 'Georgia',
+				text : '<span style="font-family:Georgia;">Georgia</span>'
+			}, {
+				fontFamily : 'Times New Roman',
+				text : '<span style="font-family:Times New Roman;">Times New Roman</span>'
+			}, {
+				fontFamily : 'Impact',
+				text : '<span style="font-family:Impact;">Impact</span>'
+			}, {
+				fontFamily : 'Comic Sans MS',
+				text : '<span style="font-family:Comic Sans MS;">Comic Sans MS</span>'
+			}, {
+				fontFamily : 'Tahoma',
+				text : '<span style="font-family:Tahoma;">Tahoma</span>'
+			}, {
+				fontFamily : 'Garamond',
+				text : '<span style="font-family:Garamond;">Garamond</span>'
+			}, {
+				fontFamily : 'Lucida Console',
+				text : '<span style="font-family:Lucida Console;">Lucida Console</span>'
+			}, '-', {
+				fontFamily : '宋体',
+				text : '<span style="font-family:宋体;">宋体</span>'
+			}, {
+				fontFamily : '微软雅黑',
+				text : '<span style="font-family:微软雅黑;">微软雅黑</span>'
+			}, {
+				fontFamily : '黑体',
+				text : '<span style="font-family:黑体;">黑体</span>'
+			}]
+		}, '-', {
+			xtype : 'gdsymbolnumberfield',
+			minValue : 10,
+			maxValue : 100,
+			value : 13,
+			width : 73,
+			symbol : 'px',
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+
+				this.suspendEvents(false);
+				this.setValue(sels[0].labelDelegate.style.fontSize);
+				this.resumeEvents();
+			},
+			listeners : {
+				change : function(f, value) {
+					Ext.each(me.selections, function(v) {
+						if (v.labelDelegate) {
+							v.labelDelegate.style.fontSize = value;
+							v.labelDelegate.updateStyle();
+						}
+					});
+				}
+			}
+		}, '-', {
+			iconCls : 'gdicon-format_bold gd-style-btn',
+			toggleGroup : Ext.id(),
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+
+				this.suspendEvents(false);
+				this.toggle(sels[0].labelDelegate.style.fontWeight == 'bold');
+				this.resumeEvents();
+			},
+			listeners : {
+				toggle : function(btn, pressed) {
+					Ext.each(me.selections, function(v) {
+						if (v.labelDelegate) {
+							v.labelDelegate.style.fontWeight = pressed ? 'bold' : 'normal';
+							v.labelDelegate.updateStyle();
+						}
+					});
+				}
+			}
+		}, {
+			iconCls : 'gdicon-format_italic gd-style-btn',
+			toggleGroup : Ext.id(),
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+
+				this.suspendEvents(false);
+				this.toggle(sels[0].labelDelegate.style.fontStyle == 'italic');
+				this.resumeEvents();
+			},
+			listeners : {
+				toggle : function(btn, pressed) {
+					Ext.each(me.selections, function(v) {
+						if (v.labelDelegate) {
+							v.labelDelegate.style.fontStyle = pressed ? 'italic' : 'normal';
+							v.labelDelegate.updateStyle();
+						}
+					});
+				}
+			}
+		}, {
+			iconCls : 'gdicon-format_underlined gd-style-btn',
+			toggleGroup : Ext.id(),
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+
+				this.suspendEvents(false);
+				this.toggle(sels[0].labelDelegate.style.textDecoration == 'underline');
+				this.resumeEvents();
+			},
+			listeners : {
+				toggle : function(btn, pressed) {
+					Ext.each(me.selections, function(v) {
+						if (v.labelDelegate) {
+							v.labelDelegate.style.textDecoration = pressed ? 'underline' : '';
+							v.labelDelegate.updateStyle();
+						}
+					});
+				}
+			}
+		}, {
+			xtype : 'gdcolorpickerbutton',
+			getText : function() {
+				return '<span class="gdicon-format_color_text gd-style-btn"></span>';
+			},
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+				this.updateColor(sels[0].labelDelegate.style.color.substring(1));
+			},
+			doSetColor : function(color) {
+				Ext.each(me.selections, function(v) {
+					if (v.labelDelegate) {
+						v.labelDelegate.style.color = '#' + color;
+						v.labelDelegate.updateStyle();
+					}
+				});
+			}
+		}, {
+			iconCls : 'gdicon-format_align_left gd-style-btn',
+			toggleGroup : me.id + '-align',
+			allowDepress : false,
+			key : 'align',
+			value : 'left',
+			handler : alignHandler,
+			updateSels : alignUpdateSels
+		}, {
+			iconCls : 'gdicon-format_align_center gd-style-btn',
+			toggleGroup : me.id + '-align',
+			allowDepress : false,
+			key : 'align',
+			value : 'center',
+			handler : alignHandler,
+			updateSels : alignUpdateSels
+		}, {
+			iconCls : 'gdicon-format_align_right gd-style-btn',
+			toggleGroup : me.id + '-align',
+			allowDepress : false,
+			key : 'align',
+			value : 'right',
+			handler : alignHandler,
+			updateSels : alignUpdateSels
+		}, {
+			iconCls : 'gdicon-vertical_align_top gd-style-btn',
+			toggleGroup : me.id + '-valign',
+			allowDepress : false,
+			key : 'valign',
+			value : 'top',
+			handler : alignHandler,
+			updateSels : alignUpdateSels
+		}, {
+			iconCls : 'gdicon-vertical_align_center gd-style-btn',
+			toggleGroup : me.id + '-valign',
+			allowDepress : false,
+			key : 'valign',
+			value : 'middle',
+			handler : alignHandler,
+			updateSels : alignUpdateSels
+		}, {
+			iconCls : 'gdicon-vertical_align_bottom gd-style-btn',
+			toggleGroup : me.id + '-valign',
+			allowDepress : false,
+			key : 'valign',
+			value : 'bottom',
+			handler : alignHandler,
+			updateSels : alignUpdateSels
+		}, '-', {
+			xtype : 'gdcolorpickerbutton',
+			getText : function() {
+				return '<span class="gdicon-format_color_fill gd-style-btn"></span>';
+			},
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+				this.updateColor(sels[0].style.fill.substring(1));
+			},
+			doSetColor : function(color) {
+				Ext.each(me.selections, function(v) {
+					v.style.fill = '#' + color;
+					v.updateStyle();
+				});
+			}
+		}, {
+			xtype : 'gdcolorpickerbutton',
+			getText : function() {
+				return '<span class="gdicon-border_color gd-style-btn"></span>';
+			},
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+				this.updateColor(sels[0].style.lineColor.substring(1));
+			},
+			doSetColor : function(color) {
+				Ext.each(me.selections, function(v) {
+					v.style.lineColor = '#' + color;
+					v.updateStyle();
+				});
+			}
+		}, {
+			xtype : 'gdselectcombo',
+			text : '<div style="position:relative;width:20px;height:16px;">' +
+				'<div style="position:absolute;width:100%;top:0px;background-color:black;height:4px;"></div>' +
+				'<div style="position:absolute;width:100%;top:8px;background-color:black;height:3px;"></div>' +
+				'<div style="position:absolute;width:100%;top:14px;background-color:black;height:2px;"></div>' +
+				'</div>',
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+
+				Ext.each(this.menu.query('*[iconCls="gdicon-checkmark"]'), function(mi) {
+					mi.setIconCls('x');
+				});
+				this.menu.query('*[lineWidth=' + sels[0].style.lineWidth + ']')[0].setIconCls('gdicon-checkmark');
+			},
+			handleItem : function(item) {
+				var width = item.lineWidth;
+				Ext.each(me.selections, function(v) {
+					v.style.lineWidth = width;
+					v.updateStyle();
+				});
+			},
+			items : [{
+				lineWidth : 0,
+				text : '0px'
+			}, {
+				lineWidth : 1,
+				text : '1px'
+			}, {
+				lineWidth : 2,
+				text : '2px'
+			}, {
+				lineWidth : 3,
+				text : '3px'
+			}, {
+				lineWidth : 4,
+				text : '4px'
+			}, {
+				lineWidth : 5,
+				text : '5px'
+			}, {
+				lineWidth : 6,
+				text : '6px'
+			}, {
+				lineWidth : 8,
+				text : '8px'
+			}, {
+				lineWidth : 10,
+				text : '10px'
+			}]
+		}, {
+			xtype : 'gdselectcombo',
+			text : '<div style="position:relative;width:20px;height:16px;">' +
+			'<div style="position:absolute;width:100%;top:2px;background-color:black;height:2px;"></div>' +
+
+			'<div style="position:absolute;width:40%;top:8px;background-color:black;height:2px;"></div>' +
+			'<div style="position:absolute;width:40%;top:8px;left:12px;background-color:black;height:2px;"></div>' +
+
+			'<div style="position:absolute;width:20%;top:14px;background-color:black;height:2px;"></div>' +
+			'<div style="position:absolute;width:20%;top:14px;left:8px;background-color:black;height:2px;"></div>' +
+			'<div style="position:absolute;width:20%;top:14px;left:16px;background-color:black;height:2px;"></div>' +
+			'</div>',
+			updateSels : function(sels) {
+				if (sels.length > 1) return;
+
+				Ext.each(this.menu.query('*[iconCls="gdicon-checkmark"]'), function(mi) {
+					mi.setIconCls('x');
+				});
+				if (!sels[0].style.lineStyle) {
+					this.menu.items.items[0].setIconCls('gdicon-checkmark');
+				} else {
+					this.menu.query('*[lineStyle="' + sels[0].style.lineStyle + '"]')[0].setIconCls('gdicon-checkmark');
+				}
+			},
+			handleItem : function(item) {
+				var style = item.lineStyle;
+				Ext.each(me.selections, function(v) {
+					v.style.lineStyle = style;
+					v.updateStyle();
+				});
+			},
+			items : [{
+				lineStyle : '',
+				text : '<div class="gd-style-linestyle gd-style-line-normal"></div>'
+			}, {
+				lineStyle : '-',
+				text : '<div class="gd-style-linestyle gd-style-line-dashed"></div>'
+			}, {
+				lineStyle : '.',
+				text : '<div class="gd-style-linestyle gd-style-line-dotted"></div>'
+			}, {
+				lineStyle : '-.',
+				text : '<div class="gd-style-linestyle gd-style-line-dash-dotted"></div>'
+			}]
+		}, '-', {
+			iconCls : 'gdicon-flip_to_front gd-style-btn',
+			handler : function() {
+				Ext.each(me.selections, function(v) {
+					v.flipToFront();
+				});
+			}
+		}, {
+			iconCls : 'gdicon-flip_to_back gd-style-btn',
+			handler : function() {
+				Ext.each(me.selections, function(v) {
+					v.flipToBack();
+				});
+			}
+		}];
+
+		this.callParent();
+	},
+	afterRender : function() {
+		var cp = this.getCanvasPanel();
+		if (cp) {
+			var me = this;
+			if (cp.rendered) {
+				cp.selModel.on('selectionchange', function() {
+					me.selections = this.getSelections();
+					me.handleSelectionChange();
+				});
+			} else {
+				cp.on('afterRender', function() {
+					this.selModel.on('selectionchange', function() {
+						me.selections = this.getSelections();
+						me.handleSelectionChange();
+					});
+				});
+			}
+
+			$(this.el.dom).click(function(e) {
+				e.stopPropagation();
+				cp.fireLastCanvasClick();
+			});
+		}
+
+		this.items.each(function(c) {
+			c.setDisabled ? c.setDisabled(true) : null;
+		});
+
+		this.callParent();
+		setTimeout(function() {
+			me.doLayout();
+		}, 100);
+	},
+	handleSelectionChange : function() {
+		if (this.selections.length == 0) {
+			//disable all!
+			this.items.each(function(c) {
+				c.setDisabled ? c.setDisabled(true) : null;
+			});
+		} else {
+			var sels = this.selections;
+			this.items.each(function(c) {
+				c.setDisabled ? c.setDisabled(false) : null;
+				c.updateSels ? c.updateSels(sels) : null;
+			});
+		}
+	}
+});
 

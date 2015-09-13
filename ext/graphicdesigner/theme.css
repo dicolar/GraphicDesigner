@@ -63,7 +63,7 @@ div.gd-splitter-h {
 .gd-canvas-container {
 	position: absolute;
 	background-color: #F2F2F2;
-	box-shadow: 0px 0px 15px;
+	box-shadow: 3px 3px 3px gray;
 	text-align : left;
 }
 
@@ -305,6 +305,50 @@ div.gd-splitter-h {
 .gd-toolbox-item:active {
 	color : white;
 	background-color : #3D3D3D;
+}
+
+.gd-toolbar {
+	border-bottom: 1px #CBCCCC solid!important;
+	background-color: #F9F9F9;
+}
+.gd-style-btn {
+	color : #707070;
+	font-size : 16px;
+	text-shadow: 1px 1px 1px white;
+}
+
+.gd-style-font-color-indicator {
+	position: absolute;
+	background-color: black;
+	height: 4px;
+	top: 13px;
+	width: 100%;
+}
+.gd-style-color-input {
+	margin-left: 2px;
+	width: 60px;
+}
+.gd-style-linestyle {
+	width : 80px;
+	height : 10px;
+	margin-top : -17px;
+}
+.gd-style-line-normal {
+	background-image: url(images/line-normal.png);
+}
+.gd-style-line-dashed {
+	background-image: url(images/line-dashed.png);
+}
+.gd-style-line-dotted {
+	background-image: url(images/line-dotted.png);
+}
+.gd-style-line-dash-dotted {
+	background-image: url(images/line-dash-dotted.png);
+}
+
+/*menu fix css*/
+.x-menu-item-active>.x-menu-item-link>.x-menu-item-icon {
+	color : white;
 }
 
 @font-face {
