@@ -22,29 +22,15 @@ it's a world of delegates!
 
 let's take a look at some screenshots & features!
 
-base
+Overview
 ---------
-![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/base.png)
+![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/overview.png)
 
-form design->form render
+Form Designer->Real Form!
 ---------
 ![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/form-translation.png)
 
-toolbox
----------
-![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/toolbox.png)
-
-preview
----------
-![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/preview.png)
-
-autodock
----------
-![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/autodock.png)
-
-dragdrop
----------
-![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/drag-drop.png)
+[Online Demo](http://dicolar.github.io/GraphicDesigner/demos/overview.html)
 
 but,there're still some known issues on it,and it's now at version 0.1.0-beta.
 you can watch this project, any suggestion is appreciated!

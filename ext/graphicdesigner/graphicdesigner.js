@@ -541,7 +541,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	paperHeight : 1280,
 	constraint : false,
 	constraintPadding : 5,
-	bgColor : 'white',
+	bgColor : '#ffffff',
 	selModel : {
 		xtype : 'gdselmodel'
 	},
@@ -560,6 +560,12 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	bodyCls : 'gd-canvas-bg',
 	html : '<div scope="container" style="display:inline-block;"></div>',
 	viewonly : false,
+	setBgColor : function(color) {
+		this.bgColor = color;
+		this.bgLayer.css({
+			'background-color' : color
+		});
+	},
 	hideGrid : function() {
 		this.gridHidden = true;
 		this.gridLayer.hide();
@@ -595,6 +601,10 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 		cvs.attr('width', svg.width()).attr('height', svg.height());
 
 		var ctx = cvs[0].getContext('2d');
+
+		ctx.fillStyle = this.bgColor;
+		ctx.fillRect(0, 0, svg.width(), svg.height());
+
 		ctx.drawImage(img[0], 0, 0, svg.width(), svg.height());
 
 		var url = cvs[0].toDataURL();
@@ -5541,6 +5551,10 @@ Ext.define('GraphicDesigner.CanvasInfoInspector', {
 				cvs.attr('width', svg.width()).attr('height', svg.height());
 
 				var ctx = cvs[0].getContext('2d');
+
+				ctx.fillStyle = me.ownerCt.owner.bgColor;
+				ctx.fillRect(0, 0, svg.width(), svg.height());
+
 				ctx.drawImage(img[0], 0, 0, svg.width(), svg.height());
 
 				img.remove();
