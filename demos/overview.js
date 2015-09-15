@@ -18,13 +18,13 @@ Ext.onReady(function() {
 						}
 					}
 				}, {
-					xtype : 'numberfield',
+					xtype : 'gdsymbolnumberfield',
 					editable : false,
 					minValue : 0,
 					maxValue : 20,
 					value : 5,
-					width : 180,
-					fieldLabel : 'ConstraintPadding',
+					width : 70,
+					symbol : 'px',
 					disabled : true,
 					listeners : {
 						change : function(f, v) {
@@ -32,7 +32,7 @@ Ext.onReady(function() {
 						}
 					}
 				}, '-', {
-					text : 'HideGridlines',
+					text : 'Hide Grid lines',
 					btnPosition : 'first',
 					toggleGroup : 'toggle-grid',
 					listeners : {
@@ -45,7 +45,7 @@ Ext.onReady(function() {
 						}
 					}
 				}, {
-					text : 'ToggleReadOnly',
+					text : 'Toggle Read Only',
 					btnPosition : 'last',
 					toggleGroup : 'toggle-readonly',
 					listeners : {
@@ -54,7 +54,7 @@ Ext.onReady(function() {
 						}
 					}
 				}, {
-					text : 'PageSize',
+					text : 'Page Size...',
 					btnType : 'info',
 					actionBtn : true,
 					handler : function() {
@@ -158,7 +158,7 @@ Ext.onReady(function() {
 				}, '->', {
 					xtype : 'label',
 					hidden : typeof NOTHEME != 'undefined',
-					html : '<a href="overview-notheme.html" class="hyperlink clickable-ex">Look for a neptune version?click me!</a>'
+					html : '<a href="overview-notheme.html" class="hyperlink clickable-ex">Looking for a neptune version?click me!</a>'
 				}, {
 					text : 'Tips',
 					handler : function() {
@@ -174,7 +174,7 @@ Ext.onReady(function() {
 							html : '<div>' +
 								'<div class="gdicon-coffee" style="margin:3px;">Select a view and press SPACE or DOUBLE-CLICK to start edit.</div>' +
 								'<div class="gdicon-coffee" style="margin:3px;">When editing,press ENTER to end edit,press ESC to cancel edit.</div>' +
-								'<div class="gdicon-coffee" style="margin:3px;">When editing,press TAB to end edit,press ESC to cancel edit.</div>' +
+								'<div class="gdicon-coffee" style="margin:3px;">When editing,press TAB to start another view\'s editing.</div>' +
 								'<div class="gdicon-coffee" style="margin:3px;">Select a view and press ↑	↓	←	→（Shift supported!） to move it.️</div>' +
 								'<div class="gdicon-coffee" style="margin:3px;">Select a view and press BACKSPACE or DELETE to remove it.</div>' +
 								'<div class="gdicon-coffee" style="margin:3px;">Select some views and press Ctrl+C&Ctrl+V(on mac both Ctrl&Command key supported) to copy them.</div>' +
