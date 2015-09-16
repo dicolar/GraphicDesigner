@@ -105,7 +105,7 @@ Ext.onReady(function() {
 						this.ownerCt.ownerCt.getComponent('canvas').setBgColor('#' + color);
 					}
 				}, {
-					text : 'Export Graphic',
+					text : 'Download Graphic',
 					handler : function() {
 						this.ownerCt.ownerCt.getComponent('canvas').downloadImage('graphic');
 					}
@@ -210,7 +210,7 @@ Ext.onReady(function() {
 							afterRender : function() {
 								$(this.inputEl.dom).css({
 									'padding-right' : '22px'
-								}).after('<span class="gdicon-search" style="color:#d0d0d0;font-size:16px;top:4px;right:5px;position:absolute;"></span>');
+								}).after('<span class="icon-search2" style="color:#d0d0d0;font-size:16px;top:4px;right:5px;position:absolute;"></span>');
 							},
 							keyup : function() {
 								var key = Ext.String.trim(this.getValue());
@@ -249,6 +249,7 @@ Ext.onReady(function() {
 			}, {
 				xtype : 'gdcanvaspanel',
 				itemId : 'canvas',
+				//selModel : null,
 				views : [{
 					xtype : 'gdrect',
 					frame : {
