@@ -59,7 +59,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	},
 	getPngUrl : function() {
 		var svg = $(this.getCanvas());
-		var img = $('<image src="' + this.getDataUrl(true) + '" />');
+		var img = $('<img src="' + this.getDataUrl(true) + '" />');
 		img.width(svg.width()).height(svg.height());
 		$(document.body).append(img);
 		img.on('load', function() { $(this).hide();});
@@ -333,7 +333,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 
 			}
 		};
-		document.addEventListener('keyup', keyupLis);
+		$(document).keyup(keyupLis);
 		//end key listeners
 
 		window.paper = paper;

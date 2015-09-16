@@ -8,11 +8,13 @@ there're lots of familiar designers throughout the web.
 But,u really should look at this,it's very friendly with ur BUSINESS!
     
 	> Wanna build an Online Visio Application?
-	Yes,ITSELF is!
+	>Yes,ITSELF is!
+
 	> Wanna draw a Workflow Template?
-	It provides complex validations by extra!
+	>It provides complex validations by extra!
+
 	> Wanna build up a form designer?
-	It can do it excellently!(you can not only find a form designer here, 
+	>It can do it excellently!(you can not only find a form designer here,
 		but also a "Design Draft->Real Form" instance here!)
   
 Graphic Designer has a well-designed mechanism of 'DELEGATE(like plugin)',

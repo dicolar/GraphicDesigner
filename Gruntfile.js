@@ -25,6 +25,18 @@ module.exports = function(grunt) {
 				src : ['resource/**'],
 				dest : 'dist'
 			}
+		},
+		watch : {
+			scripts : {
+				files : ['src/**/*.js'],
+				tasks : ['buildjs'],
+				options : {
+					interrupt : true
+				}
+			}
+		},
+		jshint: {
+			beforeconcat: ['src/**.js']
 		}
 	});
 
@@ -32,6 +44,10 @@ module.exports = function(grunt) {
 	grunt.loadNpmTasks('grunt-contrib-concat');
 	grunt.loadNpmTasks('grunt-contrib-uglify');
 	grunt.loadNpmTasks('grunt-contrib-copy');
+	grunt.loadNpmTasks('grunt-contrib-watch');
+	grunt.loadNpmTasks('grunt-contrib-jshint');
 
 	grunt.registerTask('default', ['clean', 'concat', 'uglify', 'copy']);
+	grunt.registerTask('watch', ['watch']);
+	grunt.registerTask('buildjs', ['concat', 'uglify']);
 };

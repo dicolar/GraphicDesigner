@@ -103,7 +103,7 @@ Ext.define('GraphicDesigner.View', {
 			fill : '#ffffff',
 			fillOpacity : 1,
 			lineColor : '#000000',
-			lineWidth : 2,
+			lineWidth : 1,
 			lineStyle : ''
 		}, this.style);
 
@@ -208,17 +208,16 @@ Ext.define('GraphicDesigner.View', {
 			me.fireEvent('dragmoving', dx, dy, x, y, e);
 		}, function(x, y ,e) {
 			if (e.button == 2) {
-				me.ownerCt.fireEvent('viewclicked', me);
 				me.fireEvent('contextmenu', x, y, e);
 				return;
 			}
 			me.fireEvent('dragstart', x, y, e);
-			me.ownerCt.fireEvent('viewclicked', me);
 		}, function(e) {
 			me.fireEvent('dragend', e);
 		});
 		this.set.click(function(e) {
 			e.stopPropagation();
+			me.ownerCt.fireEvent('viewclicked', me);
 		});
 
 		this.set.hover(function() {

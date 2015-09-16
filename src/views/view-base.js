@@ -114,7 +114,8 @@ Ext.define('GraphicDesigner.Pool', {
 		if (w >= h) {
 			w = h * .6;
 		}
-		var fromx = frame.x + (frame.width - w) / 2
+		var fromx = frame.x + (frame.width - w) / 2;
+		var lh = h / 4;
 
 		return [{
 			type : 'rect',
@@ -124,7 +125,7 @@ Ext.define('GraphicDesigner.Pool', {
 			height : h
 		}, {
 			type : 'path',
-			path : 'M' + fromx + ',' + (frame.y + 20) + 'H' + (fromx + w)
+			path : 'M' + fromx + ',' + (frame.y + lh) + 'H' + (fromx + w)
 		}];
 	},
 	getDefaultFrame : function() {
@@ -242,6 +243,7 @@ Ext.define('GraphicDesigner.HPool', {
 		if (h >= w) {
 			h = w * .6;
 		}
+		var lw = w / 4;
 		var fromx = frame.x + (frame.width - w) / 2;
 		var fromy = frame.y + (frame.height - h) / 2;
 
@@ -253,7 +255,7 @@ Ext.define('GraphicDesigner.HPool', {
 			height : h
 		}, {
 			type : 'path',
-			path : 'M' + (fromx + 20) + ',' + fromy + 'V' + (fromy + h)
+			path : 'M' + (fromx + lw) + ',' + fromy + 'V' + (fromy + h)
 		}];
 	},
 	getDefaultFrame : function() {

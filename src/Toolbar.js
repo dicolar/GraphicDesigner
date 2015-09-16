@@ -387,7 +387,7 @@ Ext.define('GraphicDesigner.Toolbar', {
 	afterRender : function() {
 		var me = this;
 		var cp = this.getCanvasPanel();
-		if (cp) {
+		if (cp && cp.selModel) {
 			if (cp.rendered) {
 				cp.selModel.on('selectionchange', function() {
 					me.selections = this.getSelections();

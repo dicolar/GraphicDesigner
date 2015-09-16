@@ -37,8 +37,8 @@ Ext.define('GraphicDesigner.ViewsetPanel', {
 			me.items.push(Ext.apply({
 				viewTemplate : true,
 				xtype : 'panel',
-				width : 80,
-				height : 80,
+				width : 40,
+				height : 40,
 				header : false,
 				title : tpl.title,
 				keyword : tpl.keyword ? tpl.keyword : '',

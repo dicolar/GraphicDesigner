@@ -40,12 +40,12 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 		return {
 			zindexed : function() {
 				if (me.view.selected) {
-					new Ext.util.DelayedTask(function(){
+					new Ext.util.DelayedTask(function() {
 						me.set.toFront();
 					}).delay(100);
 				}
 			},
-			selected : function() {
+			selected : function(views) {
 				me.set.toFront().show();
 			},
 			deselected : function() {

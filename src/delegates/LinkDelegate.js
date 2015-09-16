@@ -1041,7 +1041,7 @@ function GDLinker(src) {
 			path.mousedown(function(e) {
 				e.stopPropagation();
 			}).attr({
-				'stroke-width' : 2,
+				'stroke-width' : 1,
 				cursor : 'pointer',
 				'stroke-dasharray' : this.dasharray
 			});
@@ -1140,18 +1140,18 @@ function GDLinker(src) {
 		if (lastNode.x == secLastNode.x) {//tb
 			if (lastNode.y < secLastNode.y) {
 				//t
-				arrowPathArr.push('L', lastNode.x + 4, lastNode.y + 10, 'L', lastNode.x - 4, lastNode.y + 10, 'Z');
+				arrowPathArr.push('L', lastNode.x + 4, lastNode.y + 12, 'L', lastNode.x - 4, lastNode.y + 12, 'Z');
 			} else {
 				//b
-				arrowPathArr.push('L', lastNode.x + 4, lastNode.y - 10, 'L', lastNode.x - 4, lastNode.y - 10, 'Z');
+				arrowPathArr.push('L', lastNode.x + 4, lastNode.y - 12, 'L', lastNode.x - 4, lastNode.y - 12, 'Z');
 			}
 		} else {
 			if (lastNode.x < secLastNode.x) {
 				//l
-				arrowPathArr.push('L', lastNode.x + 10, lastNode.y + 4, 'L', lastNode.x + 10, lastNode.y - 4, 'Z');
+				arrowPathArr.push('L', lastNode.x + 12, lastNode.y + 4, 'L', lastNode.x + 12, lastNode.y - 4, 'Z');
 			} else {
 				//r
-				arrowPathArr.push('L', lastNode.x - 10, lastNode.y + 4, 'L', lastNode.x - 10, lastNode.y - 4, 'Z');
+				arrowPathArr.push('L', lastNode.x - 12, lastNode.y + 4, 'L', lastNode.x - 12, lastNode.y - 4, 'Z');
 			}
 		}
 
@@ -1165,8 +1165,8 @@ function GDLinker(src) {
 		this.arrow.drag(function(dx, dy) {
 			//try 2 remove inlinkers if target has linkend
 			if (me.target.linkend) {
-				var index = me.target.linkend.data('inlinkers').indexOf(me);
-				if (index > -1) me.target.linkend.data('inlinkers').splice(index, 1);
+				var index = me.target.linkend.inlinkers.indexOf(me);
+				if (index > -1) me.target.linkend.inlinkers.splice(index, 1);
 			}
 			me.detectAndDraw(this.dx + dx, this.dy + dy);
 
@@ -1208,20 +1208,22 @@ function GDLinker(src) {
 
 	this.saveToLinkends = function() {
 		//store data...
-		if (this.src.linkend && this.src.linkend.data('outlinkers').indexOf(this) == -1) {
-			this.src.linkend.data('outlinkers').push(this);
+		if (this.target.linkend && this.target.linkend.inlinkers.indexOf(this) == -1) {
+			this.target.linkend.inlinkers.push(this);
 		}
-		this.target.linkend ? this.target.linkend.data('inlinkers').push(this) : null;
+		if (this.src.linkend && this.src.linkend.outlinkers.indexOf(this) == -1) {
+			this.src.linkend.outlinkers.push(this);
+		}
 	}
 
 	this.highlight = function() {
 		this.dehighlight();
-		this.fx = [this.paths.glow({width : 2}), this.arrow.glow({width : 2})];
+		this.fx = [this.paths.glow({width : 2})];
 		this.paths.toFront();
 		this.arrow.toFront();
 	}
 	this.dehighlight = function() {
-		this.fx ? this.fx[0].remove() && this.fx[1].remove() : null;
+		this.fx ? this.fx[0].remove() : null;
 		delete this.fx;
 	}
 
@@ -1276,12 +1278,12 @@ function GDLinker(src) {
 		//remove datas...
 
 		if (this.src.linkend) {
-			var index = this.src.linkend.data('outlinkers').indexOf(this);
-			if (index > -1) this.src.linkend.data('outlinkers').splice(index, 1);
+			var index = this.src.linkend.outlinkers.indexOf(this);
+			if (index > -1) this.src.linkend.outlinkers.splice(index, 1);
 		}
 		if (this.target.linkend) {
-			var index = this.target.linkend.data('inlinkers').indexOf(this);
-			if (index > -1) this.target.linkend.data('inlinkers').splice(index, 1);
+			var index = this.target.linkend.inlinkers.indexOf(this);
+			if (index > -1) this.target.linkend.inlinkers.splice(index, 1);
 		}
 	}
 }
@@ -1295,7 +1297,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 			var targetx = ele.attr('cx');
 			var targety = ele.attr('cy');
 
-			Ext.each(ele.data('outlinkers'), function(linker) {
+			Ext.each(ele.outlinkers, function(linker) {
 				//src x, y changed!
 				linker.src.x = targetx;
 				linker.src.y = targety;
@@ -1303,7 +1305,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 				linker.complete();
 			});
 
-			Ext.each(ele.data('inlinkers'), function(linker) {//linker is a set
+			Ext.each(ele.inlinkers, function(linker) {//linker is a set
 				//target x, y changed!
 				linker.target.x = targetx;
 				linker.target.y = targety;
@@ -1317,7 +1319,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 	getLinkersData : function() {
 		var linkers = [];
 		this.set.forEach(function(linkend) {
-			linkend.data('outlinkers').filter(function(linker) {
+			linkend.outlinkers.filter(function(linker) {
 				var target = {
 					x : linker.target.x,
 					y : linker.target.y,
@@ -1477,7 +1479,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 			resizestart : function() {
 				this.ownerCt.selModel ? this.ownerCt.selModel.clearLinkerSels() : null;
 			},
-			selected : function() {
+			selected : function(views) {
 				me.set.toFront().show();
 			},
 			deselected : function() {
@@ -1494,10 +1496,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 	},
 	doDestroy : function() {
 		this.set.forEach(function(linkend) {
-			linkend.data('inlinkers').filter(function(linker) {
-				linker ? linker.remove() : null;
-			});
-			linkend.data('outlinkers').filter(function(linker) {
+			linkend.outlinkers.filter(function(linker) {
 				linker ? linker.remove() : null;
 			});
 		});
@@ -1530,10 +1529,14 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 	produceLinkend : function(spec) {
 		var paper = this.view.set.paper;
 
-		return paper.circle(0, 0, 3)
+		var linkend = paper.circle(0, 0, 3)
 			.data('type', 'linkend')
 			.data('spec', spec).data('ownerCt', this)
-			.data('outlinkers', []).data('inlinkers', [])
 			.attr({fill : 'white', cursor : 'crosshair', stroke: '#883333'}).click(function(e) { e.stopPropagation();});
+
+		linkend.outlinkers = [];
+		linkend.inlinkers = [];
+
+		return linkend;
 	}
 });

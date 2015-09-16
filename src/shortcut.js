@@ -49,6 +49,12 @@ Ext.define('GraphicDesigner.ShortcutController', {
 					cp.clipboard.ccData.filter(function(desc) {
 						if (desc.linkers) {
 							desc.linkers = desc.linkers.filter(function(linker) {
+								linker.target.x += 20;
+								linker.target.y += 20;
+								linker.points.filter(function(p) {
+									p[0] += 20;
+									p[1] += 20;
+								});
 								if (linker.target && linker.target.viewId) {
 									//find orig view
 									var origView = origViewMap[linker.target.viewId];

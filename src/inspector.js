@@ -129,7 +129,7 @@ Ext.define('GraphicDesigner.Inspector', {
 			}, Ext.apply({
 				xtype : 'panel',
 				height : this.panelSize.height - 20,
-				columnWidth : 1,
+				columnWidth : 1
 			}, this.panelConfig)],
 			width : this.panelSize.width,
 			height : this.panelSize.height,

@@ -60,7 +60,7 @@ Ext.define('GraphicDesigner.SelectionModel', {
 				if (!v.selected) {
 					selflag = true;
 					v.selected = true;
-					v.fireEvent('selected');
+					v.fireEvent('selected', toSels);
 				}
 			});
 
@@ -114,7 +114,6 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			delete GraphicDesigner.selecting;
 			$(document.body).off('mouseup', mouseupL);
 			$(document.body).off('mousemove', mousemoveL);
-			canvasPanel.container.parent().parent().parent().off('scroll', scrollL);
 			selectregion ? selectregion.remove() : null;
 			selectregion = null;
 			if (!finalSelFrame) return;
@@ -134,26 +133,10 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			frame.y2 = frame.y + frame.height;
 
 			new Ext.util.DelayedTask(function(){
-				Ext.each(canvasPanel.views, function(view) {
-					var selflag = false;
-					if (Raphael.isBBoxIntersect(frame, view.set.getBBox())) {
-						if (!view.selected) {
-							view.selected = true;
-							selflag = true;
-							view.fireEvent('selected');//TODO fire multi selection event!
-						}
-					}
-					if (selflag) me.fireEvent('selectionchange');
-				});
+				me.selectByRect(frame);
 			}).delay(1);
 
 		};
-		var scrollL = function(e) {
-			//GraphicDesigner.suspendClick();
-			//e.stopPropagation();
-			//e.preventDefault();
-			//mouseupL.apply(document.body, [e]);
-		}
 		var mousedownL = function(e) {
 			if (e.button != 0 || GraphicDesigner.viewEditing || canvasPanel.viewonly) return;
 			if (['PATH', 'TEXT', 'RECT', 'CIRCLE', 'IMAGE'].indexOf(e.target.tagName.toUpperCase()) != -1) return;
@@ -177,37 +160,58 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			pleft = p3.left - p2.left - p1.left;
 			ptop = p3.top - p2.top - p1.top;
 
-			canvasPanel.container.parent().parent().parent().scroll(scrollL);
 			$(document.body).mousemove(mousemoveL);
 			$(document.body).mouseup(mouseupL);
 		};
 		$(canvasPanel.container).mousedown(mousedownL);
 	},
+	selectByRect : function(frame) {
+		var views = [];
+		Ext.each(this.ownerCt.views, function(view) {
+			if (Raphael.isBBoxIntersect(frame, view.set.getBBox())) {
+				views.push(view);
+			}
+		});
+		this.select(views);
+	},
 	select : function(views) {
 		this.ownerCt.fireLastCanvasClick();
 
+		if (this.multiselOutline) {
+			this.multiselOutline.remove();
+			delete this.multiselOutline;
+		}
+
+		var xs = [];
+		var ys = [];
+		var x2s = [];
+		var y2s = [];
+
 		var selflag = false;
-		views.filter(function(v) {
-			if (!v.selected) {
+		views.filter(function(view) {
+			if (!view.selected) {
 				selflag = true;
-				v.selected = true;
-				v.fireEvent('selected');
+				view.selected = true;
+				view.fireEvent('selected', views);
 			}
-		});
-		if (selflag) this.fireEvent('selectionchange');
-	},
-	deselect : function(views) {
-		this.ownerCt.fireLastCanvasClick();
-		var deselflag = false;
-		views.filter(function(v) {
-			if (v.selected) {
-				deselflag = true;
-				v.selected = false;
-				v.fireEvent('deselected');
-			}
+			xs.push(view.frame.x);
+			ys.push(view.frame.y);
+			x2s.push(view.frame.x + view.frame.width);
+			y2s.push(view.frame.y + view.frame.height);
 		});
 
-		if (deselflag) this.fireEvent('selectionchange');
+		selflag ? this.fireEvent('selectionchange') : null;
+
+		//if (views.length <= 1) return;
+		//
+		//var frame = {
+		//	x : Math.min.apply(Math, xs),
+		//	y : Math.min.apply(Math, ys),
+		//	x2 : Math.max.apply(Math, x2s),
+		//	y2 : Math.max.apply(Math, y2s)
+		//};
+		//
+		//this.multiselOutline = paper.rect(frame.x, frame.y, frame.x2 - frame.x, frame.y2 - frame.y).attr('stroke', '#D3B2B2').toBack();
 	},
 	clearSelection : function() {
 		this.clearLinkerSels();

@@ -249,6 +249,7 @@ Ext.onReady(function() {
 			}, {
 				xtype : 'gdcanvaspanel',
 				itemId : 'canvas',
+				//selModel : null,
 				views : [{
 					xtype : 'gdrect',
 					frame : {

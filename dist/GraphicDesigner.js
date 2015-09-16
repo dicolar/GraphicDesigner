@@ -70,7 +70,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	},
 	getPngUrl : function() {
 		var svg = $(this.getCanvas());
-		var img = $('<image src="' + this.getDataUrl(true) + '" />');
+		var img = $('<img src="' + this.getDataUrl(true) + '" />');
 		img.width(svg.width()).height(svg.height());
 		$(document.body).append(img);
 		img.on('load', function() { $(this).hide();});
@@ -344,7 +344,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 
 			}
 		};
-		document.addEventListener('keyup', keyupLis);
+		$(document).keyup(keyupLis);
 		//end key listeners
 
 		window.paper = paper;
@@ -566,7 +566,7 @@ Ext.define('GraphicDesigner.SelectionModel', {
 				if (!v.selected) {
 					selflag = true;
 					v.selected = true;
-					v.fireEvent('selected');
+					v.fireEvent('selected', toSels);
 				}
 			});
 
@@ -620,7 +620,6 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			delete GraphicDesigner.selecting;
 			$(document.body).off('mouseup', mouseupL);
 			$(document.body).off('mousemove', mousemoveL);
-			canvasPanel.container.parent().parent().parent().off('scroll', scrollL);
 			selectregion ? selectregion.remove() : null;
 			selectregion = null;
 			if (!finalSelFrame) return;
@@ -640,26 +639,10 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			frame.y2 = frame.y + frame.height;
 
 			new Ext.util.DelayedTask(function(){
-				Ext.each(canvasPanel.views, function(view) {
-					var selflag = false;
-					if (Raphael.isBBoxIntersect(frame, view.set.getBBox())) {
-						if (!view.selected) {
-							view.selected = true;
-							selflag = true;
-							view.fireEvent('selected');//TODO fire multi selection event!
-						}
-					}
-					if (selflag) me.fireEvent('selectionchange');
-				});
+				me.selectByRect(frame);
 			}).delay(1);
 
 		};
-		var scrollL = function(e) {
-			//GraphicDesigner.suspendClick();
-			//e.stopPropagation();
-			//e.preventDefault();
-			//mouseupL.apply(document.body, [e]);
-		}
 		var mousedownL = function(e) {
 			if (e.button != 0 || GraphicDesigner.viewEditing || canvasPanel.viewonly) return;
 			if (['PATH', 'TEXT', 'RECT', 'CIRCLE', 'IMAGE'].indexOf(e.target.tagName.toUpperCase()) != -1) return;
@@ -683,37 +666,58 @@ Ext.define('GraphicDesigner.SelectionModel', {
 			pleft = p3.left - p2.left - p1.left;
 			ptop = p3.top - p2.top - p1.top;
 
-			canvasPanel.container.parent().parent().parent().scroll(scrollL);
 			$(document.body).mousemove(mousemoveL);
 			$(document.body).mouseup(mouseupL);
 		};
 		$(canvasPanel.container).mousedown(mousedownL);
 	},
+	selectByRect : function(frame) {
+		var views = [];
+		Ext.each(this.ownerCt.views, function(view) {
+			if (Raphael.isBBoxIntersect(frame, view.set.getBBox())) {
+				views.push(view);
+			}
+		});
+		this.select(views);
+	},
 	select : function(views) {
 		this.ownerCt.fireLastCanvasClick();
 
+		if (this.multiselOutline) {
+			this.multiselOutline.remove();
+			delete this.multiselOutline;
+		}
+
+		var xs = [];
+		var ys = [];
+		var x2s = [];
+		var y2s = [];
+
 		var selflag = false;
-		views.filter(function(v) {
-			if (!v.selected) {
+		views.filter(function(view) {
+			if (!view.selected) {
 				selflag = true;
-				v.selected = true;
-				v.fireEvent('selected');
+				view.selected = true;
+				view.fireEvent('selected', views);
 			}
-		});
-		if (selflag) this.fireEvent('selectionchange');
-	},
-	deselect : function(views) {
-		this.ownerCt.fireLastCanvasClick();
-		var deselflag = false;
-		views.filter(function(v) {
-			if (v.selected) {
-				deselflag = true;
-				v.selected = false;
-				v.fireEvent('deselected');
-			}
+			xs.push(view.frame.x);
+			ys.push(view.frame.y);
+			x2s.push(view.frame.x + view.frame.width);
+			y2s.push(view.frame.y + view.frame.height);
 		});
 
-		if (deselflag) this.fireEvent('selectionchange');
+		selflag ? this.fireEvent('selectionchange') : null;
+
+		//if (views.length <= 1) return;
+		//
+		//var frame = {
+		//	x : Math.min.apply(Math, xs),
+		//	y : Math.min.apply(Math, ys),
+		//	x2 : Math.max.apply(Math, x2s),
+		//	y2 : Math.max.apply(Math, y2s)
+		//};
+		//
+		//this.multiselOutline = paper.rect(frame.x, frame.y, frame.x2 - frame.x, frame.y2 - frame.y).attr('stroke', '#D3B2B2').toBack();
 	},
 	clearSelection : function() {
 		this.clearLinkerSels();
@@ -1127,7 +1131,7 @@ Ext.define('GraphicDesigner.Toolbar', {
 	afterRender : function() {
 		var me = this;
 		var cp = this.getCanvasPanel();
-		if (cp) {
+		if (cp && cp.selModel) {
 			if (cp.rendered) {
 				cp.selModel.on('selectionchange', function() {
 					me.selections = this.getSelections();
@@ -1277,7 +1281,7 @@ Ext.define('GraphicDesigner.View', {
 			fill : '#ffffff',
 			fillOpacity : 1,
 			lineColor : '#000000',
-			lineWidth : 2,
+			lineWidth : 1,
 			lineStyle : ''
 		}, this.style);
 
@@ -1382,17 +1386,16 @@ Ext.define('GraphicDesigner.View', {
 			me.fireEvent('dragmoving', dx, dy, x, y, e);
 		}, function(x, y ,e) {
 			if (e.button == 2) {
-				me.ownerCt.fireEvent('viewclicked', me);
 				me.fireEvent('contextmenu', x, y, e);
 				return;
 			}
 			me.fireEvent('dragstart', x, y, e);
-			me.ownerCt.fireEvent('viewclicked', me);
 		}, function(e) {
 			me.fireEvent('dragend', e);
 		});
 		this.set.click(function(e) {
 			e.stopPropagation();
+			me.ownerCt.fireEvent('viewclicked', me);
 		});
 
 		this.set.hover(function() {
@@ -2374,7 +2377,7 @@ Ext.define('GraphicDesigner.Inspector', {
 			}, Ext.apply({
 				xtype : 'panel',
 				height : this.panelSize.height - 20,
-				columnWidth : 1,
+				columnWidth : 1
 			}, this.panelConfig)],
 			width : this.panelSize.width,
 			height : this.panelSize.height,
@@ -2456,6 +2459,12 @@ Ext.define('GraphicDesigner.ShortcutController', {
 					cp.clipboard.ccData.filter(function(desc) {
 						if (desc.linkers) {
 							desc.linkers = desc.linkers.filter(function(linker) {
+								linker.target.x += 20;
+								linker.target.y += 20;
+								linker.points.filter(function(p) {
+									p[0] += 20;
+									p[1] += 20;
+								});
 								if (linker.target && linker.target.viewId) {
 									//find orig view
 									var origView = origViewMap[linker.target.viewId];
@@ -2572,8 +2581,8 @@ Ext.define('GraphicDesigner.ViewsetPanel', {
 			me.items.push(Ext.apply({
 				viewTemplate : true,
 				xtype : 'panel',
-				width : 80,
-				height : 80,
+				width : 40,
+				height : 40,
 				header : false,
 				title : tpl.title,
 				keyword : tpl.keyword ? tpl.keyword : '',
@@ -3342,16 +3351,15 @@ Ext.define('GraphicDesigner.DragDelegate', {
 		this.view.set.attr('cursor', 'move');
 	},
 	getEventListeners : function() {
-		var me = this;
 		var startFrame;
 		return {
 			dragstart : function(x, y, e) {
 				if (e.button == 2) return;
-				startFrame = me.view.frame;
+				startFrame = this.frame;
 			},
 			dragmoving : function(dx, dy, x, y, e) {
 				if (!startFrame) return;
-				me.view.layoutInRect({
+				this.layoutInRect({
 					x : startFrame.x + dx,
 					y : startFrame.y + dy,
 					width : startFrame.width,
@@ -4848,7 +4856,7 @@ function GDLinker(src) {
 			path.mousedown(function(e) {
 				e.stopPropagation();
 			}).attr({
-				'stroke-width' : 2,
+				'stroke-width' : 1,
 				cursor : 'pointer',
 				'stroke-dasharray' : this.dasharray
 			});
@@ -4947,18 +4955,18 @@ function GDLinker(src) {
 		if (lastNode.x == secLastNode.x) {//tb
 			if (lastNode.y < secLastNode.y) {
 				//t
-				arrowPathArr.push('L', lastNode.x + 4, lastNode.y + 10, 'L', lastNode.x - 4, lastNode.y + 10, 'Z');
+				arrowPathArr.push('L', lastNode.x + 4, lastNode.y + 12, 'L', lastNode.x - 4, lastNode.y + 12, 'Z');
 			} else {
 				//b
-				arrowPathArr.push('L', lastNode.x + 4, lastNode.y - 10, 'L', lastNode.x - 4, lastNode.y - 10, 'Z');
+				arrowPathArr.push('L', lastNode.x + 4, lastNode.y - 12, 'L', lastNode.x - 4, lastNode.y - 12, 'Z');
 			}
 		} else {
 			if (lastNode.x < secLastNode.x) {
 				//l
-				arrowPathArr.push('L', lastNode.x + 10, lastNode.y + 4, 'L', lastNode.x + 10, lastNode.y - 4, 'Z');
+				arrowPathArr.push('L', lastNode.x + 12, lastNode.y + 4, 'L', lastNode.x + 12, lastNode.y - 4, 'Z');
 			} else {
 				//r
-				arrowPathArr.push('L', lastNode.x - 10, lastNode.y + 4, 'L', lastNode.x - 10, lastNode.y - 4, 'Z');
+				arrowPathArr.push('L', lastNode.x - 12, lastNode.y + 4, 'L', lastNode.x - 12, lastNode.y - 4, 'Z');
 			}
 		}
 
@@ -4972,8 +4980,8 @@ function GDLinker(src) {
 		this.arrow.drag(function(dx, dy) {
 			//try 2 remove inlinkers if target has linkend
 			if (me.target.linkend) {
-				var index = me.target.linkend.data('inlinkers').indexOf(me);
-				if (index > -1) me.target.linkend.data('inlinkers').splice(index, 1);
+				var index = me.target.linkend.inlinkers.indexOf(me);
+				if (index > -1) me.target.linkend.inlinkers.splice(index, 1);
 			}
 			me.detectAndDraw(this.dx + dx, this.dy + dy);
 
@@ -5015,20 +5023,22 @@ function GDLinker(src) {
 
 	this.saveToLinkends = function() {
 		//store data...
-		if (this.src.linkend && this.src.linkend.data('outlinkers').indexOf(this) == -1) {
-			this.src.linkend.data('outlinkers').push(this);
+		if (this.target.linkend && this.target.linkend.inlinkers.indexOf(this) == -1) {
+			this.target.linkend.inlinkers.push(this);
 		}
-		this.target.linkend ? this.target.linkend.data('inlinkers').push(this) : null;
+		if (this.src.linkend && this.src.linkend.outlinkers.indexOf(this) == -1) {
+			this.src.linkend.outlinkers.push(this);
+		}
 	}
 
 	this.highlight = function() {
 		this.dehighlight();
-		this.fx = [this.paths.glow({width : 2}), this.arrow.glow({width : 2})];
+		this.fx = [this.paths.glow({width : 2})];
 		this.paths.toFront();
 		this.arrow.toFront();
 	}
 	this.dehighlight = function() {
-		this.fx ? this.fx[0].remove() && this.fx[1].remove() : null;
+		this.fx ? this.fx[0].remove() : null;
 		delete this.fx;
 	}
 
@@ -5083,12 +5093,12 @@ function GDLinker(src) {
 		//remove datas...
 
 		if (this.src.linkend) {
-			var index = this.src.linkend.data('outlinkers').indexOf(this);
-			if (index > -1) this.src.linkend.data('outlinkers').splice(index, 1);
+			var index = this.src.linkend.outlinkers.indexOf(this);
+			if (index > -1) this.src.linkend.outlinkers.splice(index, 1);
 		}
 		if (this.target.linkend) {
-			var index = this.target.linkend.data('inlinkers').indexOf(this);
-			if (index > -1) this.target.linkend.data('inlinkers').splice(index, 1);
+			var index = this.target.linkend.inlinkers.indexOf(this);
+			if (index > -1) this.target.linkend.inlinkers.splice(index, 1);
 		}
 	}
 }
@@ -5102,7 +5112,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 			var targetx = ele.attr('cx');
 			var targety = ele.attr('cy');
 
-			Ext.each(ele.data('outlinkers'), function(linker) {
+			Ext.each(ele.outlinkers, function(linker) {
 				//src x, y changed!
 				linker.src.x = targetx;
 				linker.src.y = targety;
@@ -5110,7 +5120,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 				linker.complete();
 			});
 
-			Ext.each(ele.data('inlinkers'), function(linker) {//linker is a set
+			Ext.each(ele.inlinkers, function(linker) {//linker is a set
 				//target x, y changed!
 				linker.target.x = targetx;
 				linker.target.y = targety;
@@ -5124,7 +5134,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 	getLinkersData : function() {
 		var linkers = [];
 		this.set.forEach(function(linkend) {
-			linkend.data('outlinkers').filter(function(linker) {
+			linkend.outlinkers.filter(function(linker) {
 				var target = {
 					x : linker.target.x,
 					y : linker.target.y,
@@ -5284,7 +5294,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 			resizestart : function() {
 				this.ownerCt.selModel ? this.ownerCt.selModel.clearLinkerSels() : null;
 			},
-			selected : function() {
+			selected : function(views) {
 				me.set.toFront().show();
 			},
 			deselected : function() {
@@ -5301,10 +5311,7 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 	},
 	doDestroy : function() {
 		this.set.forEach(function(linkend) {
-			linkend.data('inlinkers').filter(function(linker) {
-				linker ? linker.remove() : null;
-			});
-			linkend.data('outlinkers').filter(function(linker) {
+			linkend.outlinkers.filter(function(linker) {
 				linker ? linker.remove() : null;
 			});
 		});
@@ -5337,11 +5344,15 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 	produceLinkend : function(spec) {
 		var paper = this.view.set.paper;
 
-		return paper.circle(0, 0, 3)
+		var linkend = paper.circle(0, 0, 3)
 			.data('type', 'linkend')
 			.data('spec', spec).data('ownerCt', this)
-			.data('outlinkers', []).data('inlinkers', [])
 			.attr({fill : 'white', cursor : 'crosshair', stroke: '#883333'}).click(function(e) { e.stopPropagation();});
+
+		linkend.outlinkers = [];
+		linkend.inlinkers = [];
+
+		return linkend;
 	}
 });
 Ext.define('GraphicDesigner.MultilineLabelDelegate', {
@@ -5393,12 +5404,12 @@ Ext.define('GraphicDesigner.ResizeDelegate', {
 		return {
 			zindexed : function() {
 				if (me.view.selected) {
-					new Ext.util.DelayedTask(function(){
+					new Ext.util.DelayedTask(function() {
 						me.set.toFront();
 					}).delay(100);
 				}
 			},
-			selected : function() {
+			selected : function(views) {
 				me.set.toFront().show();
 			},
 			deselected : function() {
@@ -6037,7 +6048,8 @@ Ext.define('GraphicDesigner.Pool', {
 		if (w >= h) {
 			w = h * .6;
 		}
-		var fromx = frame.x + (frame.width - w) / 2
+		var fromx = frame.x + (frame.width - w) / 2;
+		var lh = h / 4;
 
 		return [{
 			type : 'rect',
@@ -6047,7 +6059,7 @@ Ext.define('GraphicDesigner.Pool', {
 			height : h
 		}, {
 			type : 'path',
-			path : 'M' + fromx + ',' + (frame.y + 20) + 'H' + (fromx + w)
+			path : 'M' + fromx + ',' + (frame.y + lh) + 'H' + (fromx + w)
 		}];
 	},
 	getDefaultFrame : function() {
@@ -6165,6 +6177,7 @@ Ext.define('GraphicDesigner.HPool', {
 		if (h >= w) {
 			h = w * .6;
 		}
+		var lw = w / 4;
 		var fromx = frame.x + (frame.width - w) / 2;
 		var fromy = frame.y + (frame.height - h) / 2;
 
@@ -6176,7 +6189,7 @@ Ext.define('GraphicDesigner.HPool', {
 			height : h
 		}, {
 			type : 'path',
-			path : 'M' + (fromx + 20) + ',' + fromy + 'V' + (fromy + h)
+			path : 'M' + (fromx + lw) + ',' + fromy + 'V' + (fromy + h)
 		}];
 	},
 	getDefaultFrame : function() {
