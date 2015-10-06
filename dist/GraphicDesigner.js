@@ -1372,7 +1372,7 @@ Ext.define('GraphicDesigner.View', {
 				dblclicked = true;
 				me.fireEvent('dblclick');
 			} else {
-				clicked = true;//record 1 click,if no more click,it will dicard it!
+				clicked = true;//record 1 click,if no more click,it will discard it!
 				setTimeout(function() {
 					if (!dblclicked) me.fireEvent('click');
 					clicked = false;
@@ -1393,9 +1393,11 @@ Ext.define('GraphicDesigner.View', {
 		}, function(e) {
 			me.fireEvent('dragend', e);
 		});
+		this.on('dragstart', function() {
+			this.ownerCt.fireEvent('viewclicked', this);
+		});
 		this.set.click(function(e) {
 			e.stopPropagation();
-			me.ownerCt.fireEvent('viewclicked', me);
 		});
 
 		this.set.hover(function() {
@@ -3638,20 +3640,20 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 			me.view.fireEvent('dragmoving', dx, dy, x, y, e);
 		}, function(x, y ,e) {
 			if (e.button == 2) {
-				me.view.ownerCt.fireEvent('viewclicked', me.view);
 				me.view.fireEvent('contextmenu', x, y, e);
 				return;
 			}
 			e.stopPropagation();
 			me.view.fireEvent('dragstart', x, y, e);
-			me.view.ownerCt.fireEvent('viewclicked', me.view);
 		}, function(e) {
 			me.view.fireEvent('dragend', e);
 		}).hover(function() {
 			me.view.fireEvent('hover');
 		}, function() {
 			me.view.fireEvent('unhover');
-		}).click(function(e) { e.stopPropagation();});
+		}).click(function(e) {
+			e.stopPropagation();
+		});
 
 		this.setText(this.text);
 
@@ -4856,7 +4858,7 @@ function GDLinker(src) {
 			path.mousedown(function(e) {
 				e.stopPropagation();
 			}).attr({
-				'stroke-width' : 1,
+				'stroke-width' : 2,
 				cursor : 'pointer',
 				'stroke-dasharray' : this.dasharray
 			});

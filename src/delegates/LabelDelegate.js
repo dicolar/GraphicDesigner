@@ -88,20 +88,20 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 			me.view.fireEvent('dragmoving', dx, dy, x, y, e);
 		}, function(x, y ,e) {
 			if (e.button == 2) {
-				me.view.ownerCt.fireEvent('viewclicked', me.view);
 				me.view.fireEvent('contextmenu', x, y, e);
 				return;
 			}
 			e.stopPropagation();
 			me.view.fireEvent('dragstart', x, y, e);
-			me.view.ownerCt.fireEvent('viewclicked', me.view);
 		}, function(e) {
 			me.view.fireEvent('dragend', e);
 		}).hover(function() {
 			me.view.fireEvent('hover');
 		}, function() {
 			me.view.fireEvent('unhover');
-		}).click(function(e) { e.stopPropagation();});
+		}).click(function(e) {
+			e.stopPropagation();
+		});
 
 		this.setText(this.text);
 

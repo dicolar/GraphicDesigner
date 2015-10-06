@@ -194,7 +194,7 @@ Ext.define('GraphicDesigner.View', {
 				dblclicked = true;
 				me.fireEvent('dblclick');
 			} else {
-				clicked = true;//record 1 click,if no more click,it will dicard it!
+				clicked = true;//record 1 click,if no more click,it will discard it!
 				setTimeout(function() {
 					if (!dblclicked) me.fireEvent('click');
 					clicked = false;
@@ -215,9 +215,11 @@ Ext.define('GraphicDesigner.View', {
 		}, function(e) {
 			me.fireEvent('dragend', e);
 		});
+		this.on('dragstart', function() {
+			this.ownerCt.fireEvent('viewclicked', this);
+		});
 		this.set.click(function(e) {
 			e.stopPropagation();
-			me.ownerCt.fireEvent('viewclicked', me);
 		});
 
 		this.set.hover(function() {

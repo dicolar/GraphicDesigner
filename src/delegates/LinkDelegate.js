@@ -1041,7 +1041,7 @@ function GDLinker(src) {
 			path.mousedown(function(e) {
 				e.stopPropagation();
 			}).attr({
-				'stroke-width' : 1,
+				'stroke-width' : 2,
 				cursor : 'pointer',
 				'stroke-dasharray' : this.dasharray
 			});
