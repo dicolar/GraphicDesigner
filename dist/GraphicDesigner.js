@@ -131,7 +131,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 		this.paperWidth = width;
 		this.paperHeight = height;
 
-		this.container.parent().parent().parent().find('*').stop();
+		this.container.parent().parent().parent().stop();
 		if (this.viewonly) {
 			$(this.body.dom).addClass('gd-canvas-bg-readonly');
 			$(this.layout.innerCt.dom).addClass('gd-canvas-readonly');
