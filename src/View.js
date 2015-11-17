@@ -222,6 +222,7 @@ Ext.define('GraphicDesigner.View', {
 		//===========end translating===============
 
 		if (this.dragDelegate) {
+			if (!this.dragDelegate.xtype) this.dragDelegate.xtype = 'gddragdelegate';
 			this.dragDelegate = Ext.widget(this.dragDelegate);
 			this.dragDelegate.wireView(this);
 		}
@@ -231,38 +232,47 @@ Ext.define('GraphicDesigner.View', {
 				editable : false
 			};
 		}
+		if (!this.labelDelegate.xtype) this.labelDelegate.xtype = 'gdlabeldelegate';
 		this.labelDelegate = Ext.widget(this.labelDelegate);
 		this.labelDelegate.wireView(this);
 
 		if (this.rotateDelegate) {
+			if (!this.rotateDelegate.xtype) this.rotateDelegate.xtype = 'gdrotatedelegate';
 			this.rotateDelegate = Ext.widget(this.rotateDelegate);
 			this.rotateDelegate.wireView(this);
 		}
 		if (this.resizeDelegate) {
+			if (!this.resizeDelegate.xtype) this.resizeDelegate.xtype = 'gdresizedelegate';
 			this.resizeDelegate = Ext.widget(this.resizeDelegate);
 			this.resizeDelegate.wireView(this);
 		}
 		if (this.linkDelegate) {
+			if (!this.linkDelegate.xtype) this.linkDelegate.xtype = 'gdlinkdelegate';
 			this.linkDelegate = Ext.widget(this.linkDelegate);
 			this.linkDelegate.wireView(this);
 		}
 		if (this.keyDelegate) {
+			if (!this.keyDelegate.xtype) this.keyDelegate.xtype = 'gdkeydelegate';
 			this.keyDelegate = Ext.widget(this.keyDelegate);
 			this.keyDelegate.wireView(this);
 		}
 		if (this.dockDelegate) {
+			if (!this.dockDelegate.xtype) this.dockDelegate.xtype = 'gddockdelegate';
 			this.dockDelegate = Ext.widget(this.dockDelegate);
 			this.dockDelegate.wireView(this);
 		}
 		if (this.frameTipDelegate) {
+			if (!this.frameTipDelegate.xtype) this.frameTipDelegate.xtype = 'gdframetipdelegate';
 			this.frameTipDelegate = Ext.widget(this.frameTipDelegate);
 			this.frameTipDelegate.wireView(this);
 		}
 		if (this.contextmenuDelegate) {
+			if (!this.contextmenuDelegate.xtype) this.contextmenuDelegate.xtype = 'gdcontextmenudelegate';
 			this.contextmenuDelegate = Ext.widget(this.contextmenuDelegate);
 			this.contextmenuDelegate.wireView(this);
 		}
 		if (this.inspectorDelegate) {
+			if (!this.inspectorDelegate.xtype) this.inspectorDelegate.xtype = 'gdinspectordelegate';
 			this.inspectorDelegate = Ext.widget(this.inspectorDelegate);
 			this.inspectorDelegate.wireView(this);
 		}
@@ -275,6 +285,7 @@ Ext.define('GraphicDesigner.View', {
 			if (v == null || v.rendered) continue;
 
 			try {
+				if (Ext.isObject(v) && !v.xtype) v.xtype = 'gdviewdelegate';
 				var dlgt = Ext.widget(v);
 				dlgt.wireView(this);
 				this[key] = dlgt;
