@@ -1188,7 +1188,6 @@ Ext.define('GraphicDesigner.View', {
 	minH : 20,
 	frame : null,
 	text : '',
-	otherDelegates : [],
 	resizeDelegate : {xtype : 'gdresizedelegate'},
 	dragDelegate : {xtype : 'gddragdelegate'},
 	linkDelegate : {xtype : 'gdlinkdelegate'},
@@ -1199,9 +1198,11 @@ Ext.define('GraphicDesigner.View', {
 	frameTipDelegate : {xtype : 'gdframetipdelegate'},
 	contextmenuDelegate : {xtype : 'gdcontextmenudelegate'},
 	inspectorDelegate : {xtype : 'gdinspectordelegate'},
+	//other named like xxxDelegate will also b treated as a delegate,if succeeded newed.
 	getCustomDescription : Ext.emptyFn,
 	restoreCustomDescription : Ext.emptyFn,
 	//private
+	_innerDlgts : [],
 	updateStyle : function() {
 		this.set.attr({
 			fill : this.style.fill,
@@ -1211,11 +1212,6 @@ Ext.define('GraphicDesigner.View', {
 			stroke : this.style.lineColor,
 			'stroke-dasharray' : this.style.lineStyle
 		});
-	},
-	addDelegate : function(dl) {
-		dl = Ext.widget(dl);
-		dl.wireView(this);
-		this.otherDelegates.push(dl);
 	},
 	//end private
 	getFrame : function() {
@@ -1281,7 +1277,7 @@ Ext.define('GraphicDesigner.View', {
 			fill : '#ffffff',
 			fillOpacity : 1,
 			lineColor : '#000000',
-			lineWidth : 1,
+			lineWidth : 2,
 			lineStyle : ''
 		}, this.style);
 
@@ -1353,9 +1349,6 @@ Ext.define('GraphicDesigner.View', {
 			labelStyle : this.labelDelegate ? this.labelDelegate.style : null
 		}, this.getCustomDescription());
 	},
-	findDelegateBy : function(fn) {
-		return this.otherDelegates.filter(fn);
-	},
 	afterRender : function() {
 		this.rendered = true;
 		var me = this;
@@ -1372,7 +1365,7 @@ Ext.define('GraphicDesigner.View', {
 				dblclicked = true;
 				me.fireEvent('dblclick');
 			} else {
-				clicked = true;//record 1 click,if no more click,it will discard it!
+				clicked = true;//record 1 click,if no more click,it will dicard it!
 				setTimeout(function() {
 					if (!dblclicked) me.fireEvent('click');
 					clicked = false;
@@ -1386,15 +1379,14 @@ Ext.define('GraphicDesigner.View', {
 			me.fireEvent('dragmoving', dx, dy, x, y, e);
 		}, function(x, y ,e) {
 			if (e.button == 2) {
+				me.ownerCt.fireEvent('viewclicked', me);
 				me.fireEvent('contextmenu', x, y, e);
 				return;
 			}
 			me.fireEvent('dragstart', x, y, e);
+			me.ownerCt.fireEvent('viewclicked', me);
 		}, function(e) {
 			me.fireEvent('dragend', e);
-		});
-		this.on('dragstart', function() {
-			this.ownerCt.fireEvent('viewclicked', this);
 		});
 		this.set.click(function(e) {
 			e.stopPropagation();
@@ -1411,10 +1403,15 @@ Ext.define('GraphicDesigner.View', {
 			this.dragDelegate = Ext.widget(this.dragDelegate);
 			this.dragDelegate.wireView(this);
 		}
-		if (this.labelDelegate) {
-			this.labelDelegate = Ext.widget(this.labelDelegate);
-			this.labelDelegate.wireView(this);
+		if (!this.labelDelegate) {
+			this.labelDelgate = {
+				xtype : 'gdlabeldelegate',
+				editable : false
+			};
 		}
+		this.labelDelegate = Ext.widget(this.labelDelegate);
+		this.labelDelegate.wireView(this);
+
 		if (this.rotateDelegate) {
 			this.rotateDelegate = Ext.widget(this.rotateDelegate);
 			this.rotateDelegate.wireView(this);
@@ -1447,14 +1444,21 @@ Ext.define('GraphicDesigner.View', {
 			this.inspectorDelegate = Ext.widget(this.inspectorDelegate);
 			this.inspectorDelegate.wireView(this);
 		}
-		var od = [];
-		Ext.each(this.otherDelegates, function(d) {
-			var d = Ext.widget(d);
-			if (!Ext.isObject(d)) return;
-			od.push(d);
-			d.wireView(me);
-		});
-		this.otherDelegates = od;
+
+		//auto-detect xxxxDelegate
+		for (var key in this) {
+			if (!key.endsWith('Delegate')) continue;
+
+			var v = this[key];
+			if (v == null || v.rendered) continue;
+
+			try {
+				var dlgt = Ext.widget(v);
+				dlgt.wireView(this);
+				this[key] = dlgt;
+				this._innerDlgts.push(dlgt);
+			} catch(e) {}
+		}
 
 		this.fireEvent('afterRender');
 	},
@@ -1484,7 +1488,7 @@ Ext.define('GraphicDesigner.View', {
 			this.frameTipDelegate ? this.dockDelegates.disableListeners() : null;
 			this.contextmenuDelegate ? this.contextmenuDelegate.disableListeners() : null;
 			this.inspectorDelegate ? this.inspectorDelegate.disableListeners() : null;
-			this.otherDelegates.filter(function(d) {d.disableListeners();});
+			this._innerDlgts.filter(function(d) {d.disableListeners();});
 		} else {
 			this.labelDelegate ? this.labelDelegate.enableListeners() : null;
 			this.rotateDelegate ? this.rotateDelegate.enableListeners() : null;
@@ -1496,7 +1500,7 @@ Ext.define('GraphicDesigner.View', {
 			this.frameTipDelegate ? this.dockDelegates.enableListeners() : null;
 			this.contextmenuDelegate ? this.contextmenuDelegate.enableListeners() : null;
 			this.inspectorDelegate ? this.inspectorDelegate.enableListeners() : null;
-			this.otherDelegates.filter(function(d) {d.enableListeners();});
+			this._innerDlgts.filter(function(d) {d.enableListeners();});
 		}
 	},
 	//private
@@ -1513,7 +1517,7 @@ Ext.define('GraphicDesigner.View', {
 		this.dockDelegates ? this.dockDelegates.destroy() : null;
 		this.contextmenuDelegate ? this.contextmenuDelegate.destroy() : null;
 		this.inspectorDelegate ? this.inspectorDelegate.destroy() : null;
-		Ext.each(this.otherDelegates, function(d) {d.destroy();});
+		Ext.each(this._innerDlgts, function(d) {d.destroy();});
 
 		this.set.remove();
 
@@ -1531,11 +1535,13 @@ Ext.define('GraphicDesigner.ViewDelegate', {
 	xtype : 'gdviewdelegate',
 	//return object in format: {onDrag: function() ...}
 	getEventListeners : Ext.emptyFn,
+	preBuild : Ext.emptyFn,
 	buildDelegate : Ext.emptyFn,
 	doDestroy : Ext.emptyFn,
 	wireView : function(view) {
 		this.view = view;
 
+		this.preBuild();
 		this.buildDelegate();
 
 		this._listeners = this.getEventListeners();

@@ -3,11 +3,13 @@ Ext.define('GraphicDesigner.ViewDelegate', {
 	xtype : 'gdviewdelegate',
 	//return object in format: {onDrag: function() ...}
 	getEventListeners : Ext.emptyFn,
+	preBuild : Ext.emptyFn,
 	buildDelegate : Ext.emptyFn,
 	doDestroy : Ext.emptyFn,
 	wireView : function(view) {
 		this.view = view;
 
+		this.preBuild();
 		this.buildDelegate();
 
 		this._listeners = this.getEventListeners();
