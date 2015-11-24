@@ -1350,7 +1350,6 @@ Ext.define('GraphicDesigner.View', {
 		}, this.getCustomDescription());
 	},
 	afterRender : function() {
-		this.rendered = true;
 		var me = this;
 
 		this.layoutInRect(this.getFrame());
@@ -1471,6 +1470,7 @@ Ext.define('GraphicDesigner.View', {
 			} catch(e) {}
 		}
 
+		this.rendered = true;
 		this.fireEvent('afterRender');
 	},
 	//private
