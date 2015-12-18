@@ -467,7 +467,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	removeView : function(view) {
 		this.views = this.views.filter(function(v) {
 			return v != view;
-		});
+		}).filter(function(v) {v.destroy();});
 	},
 	removeAllViews : function() {
 		this.views.filter(function(view) {view.destroy();});

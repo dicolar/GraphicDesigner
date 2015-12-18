@@ -478,7 +478,7 @@ Ext.define('GraphicDesigner.CanvasPanel', {
 	removeView : function(view) {
 		this.views = this.views.filter(function(v) {
 			return v != view;
-		});
+		}).filter(function(v) {v.destroy();});
 	},
 	removeAllViews : function() {
 		this.views.filter(function(view) {view.destroy();});
@@ -1202,7 +1202,6 @@ Ext.define('GraphicDesigner.View', {
 	getCustomDescription : Ext.emptyFn,
 	restoreCustomDescription : Ext.emptyFn,
 	//private
-	_innerDlgts : [],
 	updateStyle : function() {
 		this.set.attr({
 			fill : this.style.fill,
@@ -1350,6 +1349,7 @@ Ext.define('GraphicDesigner.View', {
 		}, this.getCustomDescription());
 	},
 	afterRender : function() {
+		this._innerDlgts = [];
 		var me = this;
 
 		this.layoutInRect(this.getFrame());
@@ -1403,7 +1403,7 @@ Ext.define('GraphicDesigner.View', {
 			this.dragDelegate = Ext.widget(this.dragDelegate);
 			this.dragDelegate.wireView(this);
 		}
-		if (!this.labelDelegate) {
+		if (!this.labelDelayoutlegate) {
 			this.labelDelegate = {
 				xtype : 'gdlabeldelegate',
 				editable : false
@@ -5662,8 +5662,8 @@ Ext.define('GraphicDesigner.ToolboxDelegate', {
 				me.tooltip.hide();
 			}).data('item', item);
 			me.toolbox.append(it);
-			it.click(function() {
-				item.handler ? item.handler(me.view) : null;
+			it.click(function(e) {
+				item.handler ? item.handler(me.view, $(this), e) : null;
 				me.layoutElements();
 			});
 		});
@@ -5863,15 +5863,23 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 				}, {
 					xtype : 'gdsymbolnumberfield',
 					symbol : 'px',
-					step : 5,
+					step : 1,
 					scope : 'x',
 					value : 0,
 					width : 80,
+					enableKeyEvents : true,
+					updateView : function() {
+						if (!me.view) return;
+						me.view.frame.x = this.getValue();
+						me.view.layoutInRect(me.view.frame);
+						me.view.fireEvent('keymoveend');
+					},
 					listeners : {
-						change : function(f, v) {
-							me.view.frame.x = this.getValue();
-							me.view.layoutInRect(me.view.frame);
-							me.view.fireEvent('keymoveend');
+						blur : function() {
+							this.updateView();
+						},
+						keyup : function(ctrl, e) {
+							if (e.keyCode == 13) this.updateView();
 						}
 					}
 				}, {
@@ -5881,19 +5889,27 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 				}, {
 					xtype : 'gdsymbolnumberfield',
 					symbol : 'px',
-					step : 5,
+					step : 1,
 					scope : 'w',
 					value : 20,
 					width : 80,
+					enableKeyEvents : true,
+					updateView : function() {
+						if (!me.view) return;
+						var ct = me.ownerCt.owner;
+						me.view.frame.width = this.getValue();
+						if (ct.constraint) {
+							me.view.frame.width = Math.min(me.view.frame.width, ct.paperWidth - ct.constraintPadding - ct.constraintPadding - me.view.frame.x);
+						}
+						me.view.layoutInRect(me.view.frame);
+						me.view.fireEvent('resizeend');
+					},
 					listeners : {
-						change : function(f, v) {
-							var ct = me.ownerCt.owner;
-							me.view.frame.width = this.getValue();
-							if (ct.constraint) {
-								me.view.frame.width = Math.min(me.view.frame.width, ct.paperWidth - ct.constraintPadding - ct.constraintPadding - me.view.frame.x);
-							}
-							me.view.layoutInRect(me.view.frame);
-							me.view.fireEvent('resizeend');
+						blur : function() {
+							this.updateView();
+						},
+						keyup : function(ctrl, e) {
+							if (e.keyCode == 13) this.updateView();
 						}
 					}
 				}]
@@ -5906,15 +5922,24 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 				}, {
 					xtype : 'gdsymbolnumberfield',
 					symbol : 'px',
-					step : 5,
+					step : 1,
 					scope : 'y',
 					value : 0,
 					width : 80,
+					enableKeyEvents : true,
+					updateView : function() {
+						if (!me.view) return;
+
+						me.view.frame.y = this.getValue();
+						me.view.layoutInRect(me.view.frame);
+						me.view.fireEvent('keymoveend');
+					},
 					listeners : {
-						change : function(f, v) {
-							me.view.frame.y = this.getValue();
-							me.view.layoutInRect(me.view.frame);
-							me.view.fireEvent('keymoveend');
+						blur : function() {
+							this.updateView();
+						},
+						keyup : function(ctrl, e) {
+							if (e.keyCode == 13) this.updateView();
 						}
 					}
 				}, {
@@ -5924,19 +5949,28 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 				}, {
 					xtype : 'gdsymbolnumberfield',
 					symbol : 'px',
-					step : 5,
+					step : 1,
 					scope : 'h',
 					value : 20,
 					width : 80,
+					enableKeyEvents : true,
+					updateView : function() {
+						if (!me.view) return;
+						var ct = me.ownerCt.owner;
+
+						me.view.frame.height = this.getValue();
+						if (ct.constraint) {
+							me.view.frame.height = Math.min(me.view.frame.height, ct.paperHeight - ct.constraintPadding - ct.constraintPadding - me.view.frame.y);
+						}
+						me.view.layoutInRect(me.view.frame);
+						me.view.fireEvent('resizeend');
+					},
 					listeners : {
-						change : function(f, v) {
-							var ct = me.ownerCt.owner;
-							me.view.frame.height = this.getValue();
-							if (ct.constraint) {
-								me.view.frame.height = Math.min(me.view.frame.height, ct.paperHeight - ct.constraintPadding - ct.constraintPadding - me.view.frame.y);
-							}
-							me.view.layoutInRect(me.view.frame);
-							me.view.fireEvent('resizeend');
+						blur : function() {
+							this.updateView();
+						},
+						keyup : function(ctrl, e) {
+							if (e.keyCode == 13) this.updateView();
 						}
 					}
 				}]

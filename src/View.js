@@ -24,7 +24,6 @@ Ext.define('GraphicDesigner.View', {
 	getCustomDescription : Ext.emptyFn,
 	restoreCustomDescription : Ext.emptyFn,
 	//private
-	_innerDlgts : [],
 	updateStyle : function() {
 		this.set.attr({
 			fill : this.style.fill,
@@ -172,6 +171,7 @@ Ext.define('GraphicDesigner.View', {
 		}, this.getCustomDescription());
 	},
 	afterRender : function() {
+		this._innerDlgts = [];
 		var me = this;
 
 		this.layoutInRect(this.getFrame());
@@ -225,7 +225,7 @@ Ext.define('GraphicDesigner.View', {
 			this.dragDelegate = Ext.widget(this.dragDelegate);
 			this.dragDelegate.wireView(this);
 		}
-		if (!this.labelDelegate) {
+		if (!this.labelDelayoutlegate) {
 			this.labelDelegate = {
 				xtype : 'gdlabeldelegate',
 				editable : false

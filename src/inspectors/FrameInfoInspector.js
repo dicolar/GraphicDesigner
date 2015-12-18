@@ -54,15 +54,23 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 				}, {
 					xtype : 'gdsymbolnumberfield',
 					symbol : 'px',
-					step : 5,
+					step : 1,
 					scope : 'x',
 					value : 0,
 					width : 80,
+					enableKeyEvents : true,
+					updateView : function() {
+						if (!me.view) return;
+						me.view.frame.x = this.getValue();
+						me.view.layoutInRect(me.view.frame);
+						me.view.fireEvent('keymoveend');
+					},
 					listeners : {
-						change : function(f, v) {
-							me.view.frame.x = this.getValue();
-							me.view.layoutInRect(me.view.frame);
-							me.view.fireEvent('keymoveend');
+						blur : function() {
+							this.updateView();
+						},
+						keyup : function(ctrl, e) {
+							if (e.keyCode == 13) this.updateView();
 						}
 					}
 				}, {
@@ -72,19 +80,27 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 				}, {
 					xtype : 'gdsymbolnumberfield',
 					symbol : 'px',
-					step : 5,
+					step : 1,
 					scope : 'w',
 					value : 20,
 					width : 80,
+					enableKeyEvents : true,
+					updateView : function() {
+						if (!me.view) return;
+						var ct = me.ownerCt.owner;
+						me.view.frame.width = this.getValue();
+						if (ct.constraint) {
+							me.view.frame.width = Math.min(me.view.frame.width, ct.paperWidth - ct.constraintPadding - ct.constraintPadding - me.view.frame.x);
+						}
+						me.view.layoutInRect(me.view.frame);
+						me.view.fireEvent('resizeend');
+					},
 					listeners : {
-						change : function(f, v) {
-							var ct = me.ownerCt.owner;
-							me.view.frame.width = this.getValue();
-							if (ct.constraint) {
-								me.view.frame.width = Math.min(me.view.frame.width, ct.paperWidth - ct.constraintPadding - ct.constraintPadding - me.view.frame.x);
-							}
-							me.view.layoutInRect(me.view.frame);
-							me.view.fireEvent('resizeend');
+						blur : function() {
+							this.updateView();
+						},
+						keyup : function(ctrl, e) {
+							if (e.keyCode == 13) this.updateView();
 						}
 					}
 				}]
@@ -97,15 +113,24 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 				}, {
 					xtype : 'gdsymbolnumberfield',
 					symbol : 'px',
-					step : 5,
+					step : 1,
 					scope : 'y',
 					value : 0,
 					width : 80,
+					enableKeyEvents : true,
+					updateView : function() {
+						if (!me.view) return;
+
+						me.view.frame.y = this.getValue();
+						me.view.layoutInRect(me.view.frame);
+						me.view.fireEvent('keymoveend');
+					},
 					listeners : {
-						change : function(f, v) {
-							me.view.frame.y = this.getValue();
-							me.view.layoutInRect(me.view.frame);
-							me.view.fireEvent('keymoveend');
+						blur : function() {
+							this.updateView();
+						},
+						keyup : function(ctrl, e) {
+							if (e.keyCode == 13) this.updateView();
 						}
 					}
 				}, {
@@ -115,19 +140,28 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 				}, {
 					xtype : 'gdsymbolnumberfield',
 					symbol : 'px',
-					step : 5,
+					step : 1,
 					scope : 'h',
 					value : 20,
 					width : 80,
+					enableKeyEvents : true,
+					updateView : function() {
+						if (!me.view) return;
+						var ct = me.ownerCt.owner;
+
+						me.view.frame.height = this.getValue();
+						if (ct.constraint) {
+							me.view.frame.height = Math.min(me.view.frame.height, ct.paperHeight - ct.constraintPadding - ct.constraintPadding - me.view.frame.y);
+						}
+						me.view.layoutInRect(me.view.frame);
+						me.view.fireEvent('resizeend');
+					},
 					listeners : {
-						change : function(f, v) {
-							var ct = me.ownerCt.owner;
-							me.view.frame.height = this.getValue();
-							if (ct.constraint) {
-								me.view.frame.height = Math.min(me.view.frame.height, ct.paperHeight - ct.constraintPadding - ct.constraintPadding - me.view.frame.y);
-							}
-							me.view.layoutInRect(me.view.frame);
-							me.view.fireEvent('resizeend');
+						blur : function() {
+							this.updateView();
+						},
+						keyup : function(ctrl, e) {
+							if (e.keyCode == 13) this.updateView();
 						}
 					}
 				}]

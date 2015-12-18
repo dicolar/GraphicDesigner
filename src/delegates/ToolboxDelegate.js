@@ -20,8 +20,8 @@ Ext.define('GraphicDesigner.ToolboxDelegate', {
 				me.tooltip.hide();
 			}).data('item', item);
 			me.toolbox.append(it);
-			it.click(function() {
-				item.handler ? item.handler(me.view) : null;
+			it.click(function(e) {
+				item.handler ? item.handler(me.view, $(this), e) : null;
 				me.layoutElements();
 			});
 		});
