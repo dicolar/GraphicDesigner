@@ -2,6 +2,8 @@ Ext.define('GraphicDesigner.Toolbar', {
 	extend : 'Ext.toolbar.Toolbar',
 	xtype : 'gdtoolbar',
 	cls : 'gd-toolbar',
+	//{display:'xxx', fontFamily:'xxxx'}
+	extraFontFamilies : [],
 	getCanvasPanel : Ext.emptyFn,
 	initComponent : function() {
 		var me = this;
@@ -23,6 +25,58 @@ Ext.define('GraphicDesigner.Toolbar', {
 			this.toggle(sels[0].labelDelegate.style[this.key] == this.value);
 			this.resumeEvents();
 		}
+
+		var fontFamilies = [{
+			fontFamily : 'Arial',
+			text : '<span style="font-family:Arial;">Arial</span>'
+		}, {
+			fontFamily : 'Helvetica',
+			text : '<span style="font-family:Helvetica;">Helvetica</span>'
+		}, {
+			iconCls : 'x',
+			fontFamily : 'Courier New',
+			text : '<span style="font-family:Courier New;">Courier New</span>'
+		}, {
+			fontFamily : 'Verdana',
+			text : '<span style="font-family:Verdana;">Verdana</span>'
+		}, {
+			iconCls : 'x',
+			fontFamily : 'Georgia',
+			text : '<span style="font-family:Georgia;">Georgia</span>'
+		}, {
+			fontFamily : 'Times New Roman',
+			text : '<span style="font-family:Times New Roman;">Times New Roman</span>'
+		}, {
+			fontFamily : 'Impact',
+			text : '<span style="font-family:Impact;">Impact</span>'
+		}, {
+			fontFamily : 'Comic Sans MS',
+			text : '<span style="font-family:Comic Sans MS;">Comic Sans MS</span>'
+		}, {
+			fontFamily : 'Tahoma',
+			text : '<span style="font-family:Tahoma;">Tahoma</span>'
+		}, {
+			fontFamily : 'Garamond',
+			text : '<span style="font-family:Garamond;">Garamond</span>'
+		}, {
+			fontFamily : 'Lucida Console',
+			text : '<span style="font-family:Lucida Console;">Lucida Console</span>'
+		}, '-', {
+			fontFamily : '宋体',
+			text : '<span style="font-family:宋体;">宋体</span>'
+		}, {
+			fontFamily : '微软雅黑',
+			text : '<span style="font-family:微软雅黑;">微软雅黑</span>'
+		}, {
+			fontFamily : '黑体',
+			text : '<span style="font-family:黑体;">黑体</span>'
+		}];
+		Ext.each(this.extraFontFamilies, function(f) {
+			fontFamilies.push({
+				fontFamily : f.fontFamily,
+				text : '<span style="font-family:' + f.fontFamily + ';">' + f.display + '</span>'
+			});
+		});
 
 		this.items = [{
 			xtype : 'gdselectcombo',
@@ -48,51 +102,7 @@ Ext.define('GraphicDesigner.Toolbar', {
 				});
 			},
 			text : '<span style="font-family:Arial;">Arial</span>',
-			items : [{
-				fontFamily : 'Arial',
-				text : '<span style="font-family:Arial;">Arial</span>'
-			}, {
-				fontFamily : 'Helvetica',
-				text : '<span style="font-family:Helvetica;">Helvetica</span>'
-			}, {
-				iconCls : 'x',
-				fontFamily : 'Courier New',
-				text : '<span style="font-family:Courier New;">Courier New</span>'
-			}, {
-				fontFamily : 'Verdana',
-				text : '<span style="font-family:Verdana;">Verdana</span>'
-			}, {
-				iconCls : 'x',
-				fontFamily : 'Georgia',
-				text : '<span style="font-family:Georgia;">Georgia</span>'
-			}, {
-				fontFamily : 'Times New Roman',
-				text : '<span style="font-family:Times New Roman;">Times New Roman</span>'
-			}, {
-				fontFamily : 'Impact',
-				text : '<span style="font-family:Impact;">Impact</span>'
-			}, {
-				fontFamily : 'Comic Sans MS',
-				text : '<span style="font-family:Comic Sans MS;">Comic Sans MS</span>'
-			}, {
-				fontFamily : 'Tahoma',
-				text : '<span style="font-family:Tahoma;">Tahoma</span>'
-			}, {
-				fontFamily : 'Garamond',
-				text : '<span style="font-family:Garamond;">Garamond</span>'
-			}, {
-				fontFamily : 'Lucida Console',
-				text : '<span style="font-family:Lucida Console;">Lucida Console</span>'
-			}, '-', {
-				fontFamily : '宋体',
-				text : '<span style="font-family:宋体;">宋体</span>'
-			}, {
-				fontFamily : '微软雅黑',
-				text : '<span style="font-family:微软雅黑;">微软雅黑</span>'
-			}, {
-				fontFamily : '黑体',
-				text : '<span style="font-family:黑体;">黑体</span>'
-			}]
+			items : fontFamilies
 		}, '-', {
 			xtype : 'gdsymbolnumberfield',
 			minValue : 10,
@@ -387,7 +397,7 @@ Ext.define('GraphicDesigner.Toolbar', {
 	afterRender : function() {
 		var me = this;
 		var cp = this.getCanvasPanel();
-		if (cp && cp.selModel) {
+		if (cp) {
 			if (cp.rendered) {
 				cp.selModel.on('selectionchange', function() {
 					me.selections = this.getSelections();
