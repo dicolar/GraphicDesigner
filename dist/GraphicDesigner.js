@@ -1413,7 +1413,7 @@ Ext.define('GraphicDesigner.View', {
 			this.dragDelegate = Ext.widget(this.dragDelegate);
 			this.dragDelegate.wireView(this);
 		}
-		if (!this.labelDelegate) {alert('no label delegate');
+		if (!this.labelDelegate) {
 			this.labelDelegate = {
 				xtype : 'gdlabeldelegate',
 				editable : false
