@@ -110,6 +110,7 @@ Ext.define('GraphicDesigner.Image', {
 	xtype : 'gdimage',
 	src : null,
 	setSrc : function(src) {
+		this.src = src;
 		this.set[0].attr('src', src);
 	},
 	getDefaultFrame : function() {
