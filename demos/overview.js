@@ -244,6 +244,9 @@ Ext.onReady(function() {
 					}, {
 						type : 'gdrect',
 						title : 'Rect'
+					}, {
+						type : 'gdimage',
+						title : 'Image'
 					}]
 				}]
 			}, {

@@ -225,7 +225,7 @@ Ext.define('GraphicDesigner.View', {
 			this.dragDelegate = Ext.widget(this.dragDelegate);
 			this.dragDelegate.wireView(this);
 		}
-		if (!this.labelDelayoutlegate) {
+		if (!this.labelDelegate) {alert('no label delegate');
 			this.labelDelegate = {
 				xtype : 'gdlabeldelegate',
 				editable : false

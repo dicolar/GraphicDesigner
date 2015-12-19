@@ -1413,7 +1413,7 @@ Ext.define('GraphicDesigner.View', {
 			this.dragDelegate = Ext.widget(this.dragDelegate);
 			this.dragDelegate.wireView(this);
 		}
-		if (!this.labelDelayoutlegate) {
+		if (!this.labelDelegate) {alert('no label delegate');
 			this.labelDelegate = {
 				xtype : 'gdlabeldelegate',
 				editable : false
@@ -6042,6 +6042,7 @@ Ext.define('GraphicDesigner.Circle', {
 				return this.view.frame;
 			}
 		});
+
 		this.resizeDelegate = Ext.applyIf(Ext.clone(this.resizeDelegate), {
 			xtype : 'gdresizedelegate',
 			showOutline : true,
@@ -6084,6 +6085,7 @@ Ext.define('GraphicDesigner.Rect', {
 		this.callParent(arguments);
 	},
 	afterViewBuilt : function() {
+		console.log(this.labelDelegate)
 		this.labelDelegate = Ext.applyIf(Ext.clone(this.labelDelegate), {
 			xtype : 'gdlabeldelegate',
 			text : this.text,
@@ -6095,6 +6097,59 @@ Ext.define('GraphicDesigner.Rect', {
 			xtype : 'gdresizedelegate',
 			resizers : ['tl', 'tr', 'bl', 'br'],
 			showOutline : false
+		});
+
+	}
+});
+
+Ext.define('GraphicDesigner.Image', {
+	extend : 'GraphicDesigner.View',
+	xtype : 'gdimage',
+	src : null,
+	setSrc : function(src) {
+		this.set[0].attr('src', src);
+	},
+	getDefaultFrame : function() {
+		return {
+			x : 50,
+			y : 50,
+			width : 100,
+			height : 100
+		};
+	},
+	getPreview : function(frame) {
+		return [{
+			type : 'image',
+			x : frame.x,
+			y : frame.y,
+			width : frame.width - 4,
+			height : frame.height - 4
+		}];
+
+	},
+	redraw : function() {
+		this.set[0].attr(this.frame);
+	},
+	buildUI : function(paper) {
+		this.shapes = [{
+			type : 'image'
+		}];
+
+		this.callParent(arguments);
+	},
+	afterViewBuilt : function() {
+		this.labelDelegate = Ext.applyIf(Ext.clone(this.labelDelegate), {
+			xtype : 'gdlabeldelegate',
+			//editable : false,
+			text : this.text,
+			getTextRect : function() {
+				return this.view.frame;
+			}
+		});
+		this.resizeDelegate = Ext.applyIf(Ext.clone(this.resizeDelegate), {
+			xtype : 'gdresizedelegate',
+			resizers : ['tl', 'tr', 'bl', 'br'],
+			showOutline : true
 		});
 
 	}
