@@ -88,7 +88,6 @@ Ext.define('GraphicDesigner.Rect', {
 		this.callParent(arguments);
 	},
 	afterViewBuilt : function() {
-		console.log(this.labelDelegate)
 		this.labelDelegate = Ext.applyIf(Ext.clone(this.labelDelegate), {
 			xtype : 'gdlabeldelegate',
 			text : this.text,
