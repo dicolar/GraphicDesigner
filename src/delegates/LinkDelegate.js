@@ -1496,9 +1496,9 @@ Ext.define('GraphicDesigner.LinkDelegate', {
 	},
 	doDestroy : function() {
 		this.set.forEach(function(linkend) {
-			linkend.outlinkers.filter(function(linker) {
+			linkend.outlinkers ? linkend.outlinkers.filter(function(linker) {
 				linker ? linker.remove() : null;
-			});
+			}) : null;
 		});
 		this.set.remove();
 	},
