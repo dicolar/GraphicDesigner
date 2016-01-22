@@ -69,14 +69,13 @@ Ext.define('GraphicDesigner.ToolboxDelegate', {
 	},
 	layoutElements : function() {
 		var frame = this.view.frame;
-		var position = $(this.view.set.paper.canvas).position();
 		this.tooltip.css({
-			left : frame.x + frame.width + position.left + 3,
-			top : frame.y + position.top - 20
+			left : frame.x + frame.width + 3,
+			top : frame.y - 20
 		});
 		this.toolbox.css({
-			left : frame.x + frame.width + position.left + 3,
-			top : frame.y + position.top
+			left : frame.x + frame.width + 3,
+			top : frame.y
 		}).show();
 		//indicate btns...
 		var me = this;
