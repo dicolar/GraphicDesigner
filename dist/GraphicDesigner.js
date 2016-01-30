@@ -5833,15 +5833,19 @@ Ext.define('GraphicDesigner.FrameInfoInspector', {
 				switch (f.scope) {
 					case 'x' :
 						f.setValue(view.frame.x);
+						f.setDisabled(view.dragDelegate == null);
 						break;
 					case 'y' :
 						f.setValue(view.frame.y);
+						f.setDisabled(view.dragDelegate == null);
 						break;
 					case 'w' :
 						f.setValue(view.frame.width);
+						f.setDisabled(view.resizeDelegate == null);
 						break;
 					case 'h' :
 						f.setValue(view.frame.height);
+						f.setDisabled(view.resizeDelegate == null);
 						break;
 				}
 				f.resumeEvents();
