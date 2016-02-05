@@ -26,11 +26,18 @@ Here snapshots go>>>>>!
 
 Overview
 ---------
-![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/overview.png)
+![image](overview.png)
 
 Form Designer->Real Form!
 ---------
-![image](https://raw.githubusercontent.com/dicolar/GraphicDesigner/master/form-translation.png)
+![image](form-translation.png)
+
+Form Designer with an excel eidtor!
+---------
+
+![image](form-example.png)
+![image](form-render-page.png)
+
 
 [Online Demo](http://dicolar.github.io/GraphicDesigner/demos/overview.html)
 
