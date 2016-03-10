@@ -3790,11 +3790,11 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		if (!this.editable) return;
 		this.textElement.hide();
 		//layout text holder 1st!
-		var rect = this.getTextRect();
+		var rect = this.getTextRect();alert();
 		var position = $(this.view.ownerCt.paper.canvas).position();
 		this.textHolder.css({
-			left : position.left + rect.x,
-			top : position.top + rect.y,
+			left : rect.x,
+			top : rect.y,
 			width : rect.width,
 			height : rect.height
 		});
