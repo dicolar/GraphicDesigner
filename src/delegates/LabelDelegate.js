@@ -215,8 +215,8 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		var rect = this.getTextRect();
 		var position = $(this.view.ownerCt.paper.canvas).position();
 		this.textHolder.css({
-			left : position.left + rect.x,
-			top : position.top + rect.y,
+			left : rect.x,
+			top : rect.y,
 			width : rect.width,
 			height : rect.height
 		});
