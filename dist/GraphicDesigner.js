@@ -1172,13 +1172,16 @@ Ext.define('GraphicDesigner.Toolbar', {
 		}, 100);
 	},
 	handleSelectionChange : function() {
-		if (this.selections.length == 0) {
+		var sels = this.selections.filter(function(sel) {
+			return sel.getXType != null;
+		});
+
+		if (sels.length == 0) {
 			//disable all!
 			this.items.each(function(c) {
 				c.setDisabled ? c.setDisabled(true) : null;
 			});
 		} else {
-			var sels = this.selections;
 			this.items.each(function(c) {
 				c.setDisabled ? c.setDisabled(false) : null;
 				c.updateSels ? c.updateSels(sels) : null;
@@ -3790,7 +3793,7 @@ Ext.define('GraphicDesigner.LabelDelegate', {
 		if (!this.editable) return;
 		this.textElement.hide();
 		//layout text holder 1st!
-		var rect = this.getTextRect();alert();
+		var rect = this.getTextRect();
 		var position = $(this.view.ownerCt.paper.canvas).position();
 		this.textHolder.css({
 			left : rect.x,
@@ -5120,11 +5123,11 @@ function GDLinker(src) {
 		this.arrow.remove();
 		//remove datas...
 
-		if (this.src.linkend) {
+		if (this.src.linkend && this.src.linkend.outlinkers) {
 			var index = this.src.linkend.outlinkers.indexOf(this);
 			if (index > -1) this.src.linkend.outlinkers.splice(index, 1);
 		}
-		if (this.target.linkend) {
+		if (this.target.linkend && this.src.linkend.inlinkers) {
 			var index = this.target.linkend.inlinkers.indexOf(this);
 			if (index > -1) this.target.linkend.inlinkers.splice(index, 1);
 		}

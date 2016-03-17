@@ -1277,11 +1277,11 @@ function GDLinker(src) {
 		this.arrow.remove();
 		//remove datas...
 
-		if (this.src.linkend) {
+		if (this.src.linkend && this.src.linkend.outlinkers) {
 			var index = this.src.linkend.outlinkers.indexOf(this);
 			if (index > -1) this.src.linkend.outlinkers.splice(index, 1);
 		}
-		if (this.target.linkend) {
+		if (this.target.linkend && this.src.linkend.inlinkers) {
 			var index = this.target.linkend.inlinkers.indexOf(this);
 			if (index > -1) this.target.linkend.inlinkers.splice(index, 1);
 		}

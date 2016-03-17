@@ -428,13 +428,16 @@ Ext.define('GraphicDesigner.Toolbar', {
 		}, 100);
 	},
 	handleSelectionChange : function() {
-		if (this.selections.length == 0) {
+		var sels = this.selections.filter(function(sel) {
+			return sel.getXType != null;
+		});
+
+		if (sels.length == 0) {
 			//disable all!
 			this.items.each(function(c) {
 				c.setDisabled ? c.setDisabled(true) : null;
 			});
 		} else {
-			var sels = this.selections;
 			this.items.each(function(c) {
 				c.setDisabled ? c.setDisabled(false) : null;
 				c.updateSels ? c.updateSels(sels) : null;
