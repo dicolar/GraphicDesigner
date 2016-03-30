@@ -32,7 +32,7 @@ Form Designer->Real Form!
 ---------
 ![image](form-translation.png)
 
-Form Designer with an excel eidtor!
+Form Designer with an excel editor!
 ---------
 
 ![image](form-example.png)
