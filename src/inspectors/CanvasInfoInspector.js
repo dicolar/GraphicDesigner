@@ -41,9 +41,9 @@ Ext.define('GraphicDesigner.CanvasInfoInspector', {
 	update : function() {
 		var me = this;
 		if (!this.task) this.task = new Ext.util.DelayedTask(function() {
+			var img = $('<img src="' + me.ownerCt.owner.getDataUrl() + '" />');
 			try {
 				var svg = $(me.ownerCt.owner.getCanvas());
-				var img = $('<image src="' + me.ownerCt.owner.getDataUrl() + '" />');
 				img.width(svg.width()).height(svg.height());
 				$(me.el.dom).append(img);
 
@@ -56,9 +56,10 @@ Ext.define('GraphicDesigner.CanvasInfoInspector', {
 				ctx.fillRect(0, 0, svg.width(), svg.height());
 
 				ctx.drawImage(img[0], 0, 0, svg.width(), svg.height());
-
+			} catch(e) {
+			} finally {
 				img.remove();
-			} catch(e) {}
+			}
 		});
 
 		this.task.cancel();
