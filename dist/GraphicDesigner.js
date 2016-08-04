@@ -2278,6 +2278,7 @@ GraphicDesigner.translateHexColorFromRgb = function(rgb) {
 	return "#" + hex(rgb[1]) + hex(rgb[2]) + hex(rgb[3]);
 }
 
+
 Ext.define('GraphicDesigner.AttributesInspectorPanel', {
 	extend : 'Ext.toolbar.Toolbar',
 	xtype : 'gdattributesinspectorpanel',
